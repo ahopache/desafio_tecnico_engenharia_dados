@@ -1,0 +1,43 @@
+# Dockerfile para ambiente de teste de integração
+FROM python:3.10-slim
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar Docker CLI para testes de integração
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - \
+    && echo "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar Docker Compose
+RUN curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose \
+    && chmod +x /usr/local/bin/docker-compose
+
+# Instalar mysql-connector-python para testes
+RUN pip install mysql-connector-python pandas pytest
+
+# Criar diretório de trabalho
+WORKDIR /app/project
+
+# Copiar requirements para instalação
+COPY requirements.txt /app/project/
+COPY requirements-test.txt /app/project/ 2>/dev/null || echo "# Arquivo de requirements de teste não encontrado" > /app/project/requirements-test.txt
+
+# Instalar dependências Python
+RUN pip install -r requirements.txt
+
+# Se existir arquivo de requirements de teste, instalar também
+RUN if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
+
+# Criar usuário não-root para execução de testes
+RUN useradd -m testuser && chown -R testuser:testuser /app
+USER testuser
+
+# Comando padrão: manter container ativo
+CMD ["tail", "-f", "/dev/null"]

@@ -1,0 +1,166 @@
+version: '3.8'
+
+# ============================================================================
+# Docker Compose - SiCooperative Data Lake POC
+# ============================================================================
+# Este arquivo orquestra os serviços necessários para o pipeline ETL:
+# - MySQL: Banco de dados fonte
+# - Spark: Ambiente de processamento distribuído
+# ============================================================================
+
+services:
+  # ==========================================================================
+  # SERVIÇO: MySQL Database
+  # ==========================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: sicooperative-mysql
+    restart: unless-stopped
+    
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: sicooperative_db
+      MYSQL_USER: etl_user
+      MYSQL_PASSWORD: etl_password
+      TZ: America/Sao_Paulo
+    
+    ports:
+      - "3306:3306"
+    
+    volumes:
+      # Scripts SQL executados automaticamente na inicialização
+      - ../sql:/docker-entrypoint-initdb.d:ro
+      # Persistência de dados
+      - mysql_data:/var/lib/mysql
+    
+    networks:
+      - sicooperative-network
+    
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max_connections=200
+
+  # ==========================================================================
+  # SERVIÇO: Spark (PySpark)
+  # ==========================================================================
+  spark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sicooperative-spark
+    restart: unless-stopped
+    
+    environment:
+      # Configurações MySQL
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: sicooperative_db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root_password
+      
+      # Configurações Spark
+      SPARK_APP_NAME: SiCooperative-ETL
+      SPARK_MASTER: local[*]
+      SPARK_DRIVER_MEMORY: 2g
+      SPARK_EXECUTOR_MEMORY: 2g
+      
+      # Configurações de Output
+      OUTPUT_DIR: /app/output
+      OUTPUT_FILENAME: movimento_flat.csv
+      OUTPUT_MODE: overwrite
+      OUTPUT_HEADER: "true"
+      
+      # Configurações de Log
+      LOG_LEVEL: INFO
+      
+      # Timezone
+      TZ: America/Sao_Paulo
+    
+    volumes:
+      # Código fonte
+      - ../src:/app/src:ro
+      # Output (leitura/escrita)
+      - ../output:/app/output
+      # Requirements (para instalação)
+      - ../requirements.txt:/app/requirements.txt:ro
+    
+    working_dir: /app
+    
+    networks:
+      - sicooperative-network
+    
+    depends_on:
+      mysql:
+        condition: service_healthy
+    
+  # ==========================================================================
+  # SERVIÇO: Ambiente de Teste
+  # ==========================================================================
+  test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+    container_name: sicooperative-test
+    restart: "no"  # Não reiniciar automaticamente
+
+    environment:
+      # Configurações MySQL (teste)
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: sicooperative_test
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+
+      # Configurações de Output (teste)
+      OUTPUT_DIR: /app/test_output
+
+      # Configurações de Log (teste)
+      LOG_LEVEL: INFO
+
+      # Timezone
+      TZ: America/Sao_Paulo
+
+    volumes:
+      # Código fonte (leitura/escrita para testes)
+      - ..:/app/project:ro
+      # Scripts de teste
+      - ../tests:/app/tests:ro
+      # Output de teste
+      - ../test_output:/app/test_output
+
+    working_dir: /app/project
+
+    networks:
+      - sicooperative-network
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    # Comando: manter container ativo para execução manual de testes
+    command: tail -f /dev/null
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  sicooperative-network:
+    driver: bridge
+    name: sicooperative-network
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  mysql_data:
+    name: sicooperative-mysql-data
+    driver: local

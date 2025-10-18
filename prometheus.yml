@@ -1,0 +1,41 @@
+# Arquivo de configuração exemplo para Prometheus
+# Copie e ajuste conforme sua infraestrutura
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Configuração para o Pushgateway
+  - job_name: 'pushgateway'
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+  # Configuração opcional para métricas diretas do ETL
+  - job_name: 'sicooperative-etl'
+    static_configs:
+      - targets: ['localhost:8000']  # Porta onde o ETL poderia expor métricas
+    scrape_interval: 30s
+
+  # Configuração padrão do Prometheus (Node Exporter, etc.)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# Configurações de armazenamento (ajuste conforme necessidade)
+storage:
+  tsdb:
+    path: /prometheus
+    retention.time: 200h
+    retention.size: 50GB
+
+# Configurações de alerta (opcional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093

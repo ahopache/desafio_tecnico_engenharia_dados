@@ -1,0 +1,25 @@
+# ============================================================================
+# Dependências Python - SiCooperative Data Lake POC
+# ============================================================================
+
+# Apache Spark
+pyspark==3.5.0
+
+# MySQL Connector
+mysql-connector-python==8.2.0
+
+# Gerenciamento de variáveis de ambiente
+python-dotenv==1.0.0
+
+# Testes
+pytest==7.4.3
+pytest-cov==4.1.0
+chispa==0.9.4
+
+# Qualidade de código
+flake8==6.1.0
+black==23.12.0
+mypy==1.7.1
+
+# Utilitários
+faker==20.1.0  # Para geração de dados fictícios (opcional)
