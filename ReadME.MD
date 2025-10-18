@@ -359,15 +359,29 @@ cp .env.example .env
 
 #### 3. Suba o ambiente completo
 
+**Método 1: Usando o script run.sh (Recomendado)**
 ```bash
+# Na raiz do projeto
+./run.sh
+```
+
+**Método 2: Comandos manuais**
+```bash
+# Navegar para o diretório docker
 cd docker
-docker-compose up -d
+
+# Iniciar com arquivo de ambiente específico
+docker-compose --env-file ../.env up --build -d
+
+# Ou usar variáveis de ambiente padrão
+docker-compose up --build -d
 ```
 
 **O que acontece:**
 - MySQL é iniciado e populado automaticamente com dados fictícios
 - Container Spark é criado com todas as dependências
 - Rede interna conecta os serviços
+- **Healthchecks garantem** que serviços estão prontos antes do uso
 
 #### 4. Execute o pipeline ETL
 
@@ -387,10 +401,80 @@ head ../output/movimento_flat.csv
 #### 6. Encerre o ambiente
 
 ```bash
+# Parar todos os serviços
 docker-compose down
+
 # Para remover volumes (dados do MySQL):
 docker-compose down -v
+
+# Para parar apenas serviços específicos:
+docker-compose stop mysql spark
 ```
+
+---
+
+### Exemplos Práticos com `--env-file`
+
+#### Exemplo 1: Ambiente de Desenvolvimento
+```bash
+# Criar arquivo .env específico para desenvolvimento
+cat > .env.dev << EOF
+MYSQL_ROOT_PASSWORD=dev_root_password
+MYSQL_DATABASE=dev_sicooperative_db
+MYSQL_USER=dev_user
+MYSQL_PASSWORD=dev_password
+OUTPUT_DIR=./output_dev
+LOG_LEVEL=DEBUG
+EOF
+
+# Executar com configuração específica
+docker-compose --env-file .env.dev -f docker/docker-compose.yml up --build -d
+```
+
+#### Exemplo 2: Ambiente de Produção
+```bash
+# Arquivo .env.prod com configurações de produção
+cat > .env.prod << EOF
+MYSQL_ROOT_PASSWORD=${MYSQL_PROD_PASSWORD}
+MYSQL_DATABASE=prod_sicooperative_db
+MYSQL_USER=${MYSQL_PROD_USER}
+MYSQL_PASSWORD=${MYSQL_PROD_PASSWORD}
+OUTPUT_DIR=/mnt/data/output
+LOG_LEVEL=INFO
+OBSERVABILITY_ENABLED=true
+EOF
+
+# Executar com configuração de produção
+docker-compose --env-file .env.prod -f docker/docker-compose.yml up --build -d
+```
+
+#### Exemplo 3: Execução Rápida
+```bash
+# Usando o script run.sh com variáveis customizadas
+MYSQL_ROOT_PASSWORD=meu_password ./run.sh
+```
+
+### Comandos Úteis para Desenvolvimento
+
+```bash
+# Ver status dos containers
+docker-compose ps
+
+# Ver logs em tempo real
+docker-compose logs -f spark
+
+# Executar comandos no container Spark
+docker-compose exec spark bash
+
+# Executar apenas os testes
+docker-compose exec spark python -m pytest tests/ -v
+
+# Limpar tudo (containers, redes, volumes)
+docker-compose down --volumes --remove-orphans
+
+# Reconstruir apenas o container Spark
+docker-compose build --no-cache spark
+docker-compose up -d spark
 
 ---
 

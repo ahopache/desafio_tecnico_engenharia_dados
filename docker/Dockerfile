@@ -4,7 +4,7 @@
 # Imagem customizada com PySpark e dependências para o pipeline ETL
 # ============================================================================
 
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 LABEL maintainer="Desafio Técnico - Engenharia de Dados"
 LABEL description="Ambiente Spark para SiCooperative Data Lake POC"
