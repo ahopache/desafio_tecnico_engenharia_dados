@@ -4,6 +4,8 @@
 
 Este documento descreve as verificações de qualidade de dados implementadas no pipeline ETL para garantir a integridade e confiabilidade dos dados processados.
 
+> 📋 **Para usuários gerais**: Veja a seção [Sistema de Qualidade de Dados](README.md#sistema-de-qualidade-de-dados) no README principal para uma visão geral.
+
 ## Implementação
 
 ### Arquitetura
@@ -205,3 +207,7 @@ As verificações de qualidade de dados implementadas garantem:
 - ✅ **Flexibilidade**: Sistema extensível e configurável
 
 O sistema equilibra rigor com praticidade, rejeitando apenas problemas críticos enquanto alerta sobre questões que merecem atenção.
+
+---
+
+**📋 Para documentação geral do projeto e instruções de uso, consulte o [README principal](../README.md).**

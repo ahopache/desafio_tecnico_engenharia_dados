@@ -2,6 +2,8 @@
 
 Este diretório contém os testes unitários para validar o pipeline ETL.
 
+> 📋 **Para usuários gerais**: Veja a seção [Testes](README.md#testes) no README principal para instruções básicas de execução.
+
 ## 📋 Estrutura
 
 ```
@@ -241,3 +243,7 @@ pytest -n auto
 - [pytest Documentation](https://docs.pytest.org/)
 - [chispa Documentation](https://github.com/MrPowers/chispa)
 - [PySpark Testing Best Practices](https://spark.apache.org/docs/latest/api/python/getting_started/testing_pyspark.html)
+
+---
+
+**📋 Para documentação geral do projeto e instruções de uso básico, consulte o [README principal](../README.md).**

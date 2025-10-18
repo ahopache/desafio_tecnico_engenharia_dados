@@ -298,12 +298,19 @@ desafio_tecnico_engenharia_dados/
 │   ├── __init__.py
 │   ├── etl_pipeline.py             # Pipeline principal ETL
 │   ├── config.py                   # Configurações e variáveis de ambiente
+│   ├── data_quality.py             # Sistema de verificações de qualidade
+│   ├── data_quality.md             # 📋 Documentação técnica do sistema de qualidade
 │   └── utils.py                    # Funções auxiliares (logging, validação)
 │
 ├── tests/
 │   ├── __init__.py
-│   ├── test_etl_pipeline.py        # Testes do pipeline
-│   └── test_utils.py               # Testes de funções auxiliares
+│   ├── conftest.py                 # Fixtures compartilhadas
+│   ├── test_config.py              # Testes de configuração
+│   ├── test_utils.py               # Testes de utilitários
+│   ├── test_etl_pipeline.py        # Testes do pipeline ETL
+│   ├── test_integration.py         # Testes de integração
+│   ├── validate_project.py         # Script de validação
+│   └── README.md                   # 📋 Documentação técnica detalhada dos testes
 │
 ├── output/                         # Diretório para CSV gerado (gitignored)
 │
@@ -452,6 +459,14 @@ tests/
     └── test_logger()                # Valida logging
 ```
 
+**Cobertura de testes:**
+- ✅ **44 testes unitários** distribuídos em 3 módulos
+- ✅ **Testes de configuração** (URLs, propriedades, validações)
+- ✅ **Testes de utilitários** (logger, validações, formatação)
+- ✅ **Testes do pipeline** (JOINs, transformações, qualidade)
+
+> 📋 **Detalhes técnicos**: Para documentação completa dos testes, consulte [`tests/README.md`](tests/README.md)
+
 ### Testes de Integração
 
 **Sistema de Testes End-to-End com Docker Compose:**
@@ -549,6 +564,24 @@ PROMETHEUS_JOB_NAME=sicooperative-etl
 METRICS_DETAILED_LOGGING=false
 METRICS_EXPORT_FILE=pipeline_metrics.json
 ```
+
+### Sistema de Qualidade de Dados
+
+O pipeline implementa verificações automáticas de qualidade durante a execução:
+
+**Verificações implementadas:**
+- ✅ **Valores NULL** em campos críticos (ex: `id_cartao` ≤ 1%)
+- ✅ **Transações negativas** em valores financeiros (alerta)
+- ✅ **Mudanças drásticas** no volume de dados (≤ 50% tolerância)
+- ✅ **Completude** de colunas obrigatórias
+
+**Política de rejeição:**
+- ❌ **FAIL**: Campos críticos com NULL excessivo
+- ❌ **FAIL**: Colunas obrigatórias ausentes
+- ⚠️ **WARN**: Transações negativas detectadas
+- ⚠️ **WARN**: Mudanças significativas no volume
+
+> 📋 **Detalhes técnicos**: Para documentação completa do sistema de qualidade, consulte [`src/data_quality.md`](src/data_quality.md)
 
 ### Integração com Prometheus
 
