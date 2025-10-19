@@ -174,6 +174,7 @@ class Config:
         "nome_associado",
         "sobrenome_associado",
         "idade_associado",
+        "id_movimento",
         "vlr_transacao_movimento",
         "des_transacao_movimento",
         "data_movimento",

@@ -5,7 +5,7 @@ Extrai dados do MySQL, transforma e gera CSV flat conforme especificação
 import os
 import sys
 import time
-
+import locale
 import argparse
 from typing import Tuple
 from pyspark.sql import SparkSession, DataFrame, functions as F
@@ -339,6 +339,7 @@ class SiCooperativeETL:
                 hash_sensitive_data(df_associado.email).alias("email_hash"),
                 
                 # Dados do movimento
+                df_movimento.id.alias("id_movimento"),
                 F.col("vlr_transacao_decimal").alias("vlr_transacao_movimento"),
                 df_movimento.des_transacao.alias("des_transacao_movimento"),
                 F.date_format("data_movimento_utc", "yyyy-MM-dd'T'HH:mm:ss'Z'").alias("data_movimento"),
@@ -414,18 +415,31 @@ class SiCooperativeETL:
                 csv_path = f"{self.output_dir}/csv"
                 create_output_directory(csv_path)
                 
+                # Aplicar ordenação determinística antes do coalesce
+                # Ordena por data_movimento (ASC) e id_movimento (ASC) para garantir ordem consistente
+                df_ordered = df.orderBy("data_movimento", "id_movimento")
+                
                 # Coalescer para um único arquivo apenas para CSV
-                df_coalesced = df.coalesce(1)
+                df_coalesced = df_ordered.coalesce(1)
+                
+                # Configurar locale para garantir separador decimal ponto (.)
+                locale.setlocale(locale.LC_NUMERIC, 'C')
                 
                 df_coalesced.write \
                     .mode(Config.OUTPUT_MODE) \
                     .option("header", str(Config.OUTPUT_HEADER).lower()) \
                     .option("delimiter", Config.OUTPUT_DELIMITER) \
                     .option("encoding", Config.OUTPUT_ENCODING) \
+                    .option("charset", "UTF-8") \
+                    .option("quoteAll", False) \
+                    .option("quoteMode", "MINIMAL") \
+                    .option("timestampFormat", "yyyy-MM-dd'T'HH:mm:ss'Z'") \
+                    .option("decimalFormat", "########.00") \
                     .csv(csv_path)
                 
                 output_paths["csv"] = csv_path
                 self.logger.info(f"✓ CSV gerado com sucesso em: {csv_path}")
+                self.logger.info("✓ Ordenação determinística aplicada (data_movimento, id_movimento)")
             
             # Gerar Parquet se solicitado
             if "parquet" in output_formats:
