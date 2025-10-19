@@ -410,6 +410,9 @@ class SiCooperativeETL:
             # Verificar quais formatos de saída usar
             output_formats = [f.strip().lower() for f in Config.OUTPUT_FORMAT.split(",")]
             
+            # Validação de tipos antes da escrita
+            self._validate_decimal_types(df)
+            
             # Gerar CSV se solicitado
             if "csv" in output_formats:
                 csv_path = f"{self.output_dir}/csv"
@@ -419,8 +422,18 @@ class SiCooperativeETL:
                 # Ordena por data_movimento (ASC) e id_movimento (ASC) para garantir ordem consistente
                 df_ordered = df.orderBy("data_movimento", "id_movimento")
                 
+                # Garantir precisão numérica com cast adicional para DecimalType(10,2)
+                # antes da escrita - isso garante que mesmo após transformações, temos exatamente 2 casas decimais
+                df_with_precision = df_ordered.withColumn(
+                    "vlr_transacao_movimento_final",
+                    F.col("vlr_transacao_movimento").cast(DecimalType(10, 2))
+                )
+                
+                # Validar que o cast foi aplicado corretamente
+                self._validate_final_decimal_precision(df_with_precision)
+                
                 # Coalescer para um único arquivo apenas para CSV
-                df_coalesced = df_ordered.coalesce(1)
+                df_coalesced = df_with_precision.coalesce(1)
                 
                 # Configurar locale para garantir separador decimal ponto (.)
                 locale.setlocale(locale.LC_NUMERIC, 'C')
@@ -440,6 +453,7 @@ class SiCooperativeETL:
                 output_paths["csv"] = csv_path
                 self.logger.info(f"✓ CSV gerado com sucesso em: {csv_path}")
                 self.logger.info("✓ Ordenação determinística aplicada (data_movimento, id_movimento)")
+                self.logger.info("✓ Precisão numérica garantida: DecimalType(10,2) aplicado antes da escrita")
             
             # Gerar Parquet se solicitado
             if "parquet" in output_formats:
@@ -463,6 +477,108 @@ class SiCooperativeETL:
         except Exception as e:
             self.logger.error(f"✗ Erro ao salvar arquivos de saída: {str(e)}")
             raise ETLException(f"Falha ao salvar arquivos de saída: {str(e)}")
+    
+    def _validate_decimal_types(self, df: DataFrame) -> None:
+        """
+        Valida que os tipos decimais estão corretos antes da escrita
+        
+        Args:
+            df: DataFrame a ser validado
+            
+        Raises:
+            ETLException: Se tipos não estiverem corretos
+        """
+        try:
+            # Verificar se a coluna vlr_transacao_movimento existe
+            if "vlr_transacao_movimento" not in df.columns:
+                raise ETLException("Coluna vlr_transacao_movimento não encontrada no DataFrame")
+            
+            # Obter schema da coluna
+            schema = df.select("vlr_transacao_movimento").schema
+            
+            if not schema:
+                raise ETLException("Não foi possível obter schema da coluna vlr_transacao_movimento")
+            
+            # Verificar se é do tipo correto
+            field = schema[0]  # Primeiro (e único) campo
+            actual_type = field.dataType
+            
+            # Verificar se é DecimalType
+            if not isinstance(actual_type, DecimalType):
+                raise ETLException(
+                    f"Tipo incorreto para vlr_transacao_movimento: esperado DecimalType, "
+                    f"obtido {type(actual_type).__name__}"
+                )
+            
+            # Verificar precisão e escala
+            precision = actual_type.precision
+            scale = actual_type.scale
+            
+            self.logger.info(
+                f"✓ Tipo validado: vlr_transacao_movimento = DecimalType({precision}, {scale})"
+            )
+            
+            # Log adicional para debug se necessário
+            if precision != 20 or scale != 2:
+                self.logger.warning(
+                    f"⚠️ Atenção: precisão atual é ({precision}, {scale}), "
+                    f"esperado era (20, 2) do cast inicial"
+                )
+            
+        except Exception as e:
+            self.logger.error(f"✗ Erro na validação de tipos decimais: {str(e)}")
+            raise ETLException(f"Falha na validação de tipos decimais: {str(e)}")
+    
+    def _validate_final_decimal_precision(self, df: DataFrame) -> None:
+        """
+        Valida que o cast final para DecimalType(10,2) foi aplicado corretamente
+        
+        Args:
+            df: DataFrame com a coluna vlr_transacao_movimento_final
+            
+        Raises:
+            ETLException: Se o cast não foi aplicado corretamente
+        """
+        try:
+            # Verificar se a coluna final existe
+            if "vlr_transacao_movimento_final" not in df.columns:
+                raise ETLException("Coluna vlr_transacao_movimento_final não encontrada após cast")
+            
+            # Obter schema da coluna final
+            schema = df.select("vlr_transacao_movimento_final").schema
+            
+            if not schema:
+                raise ETLException("Não foi possível obter schema da coluna vlr_transacao_movimento_final")
+            
+            # Verificar se é do tipo correto
+            field = schema[0]
+            actual_type = field.dataType
+            
+            # Verificar se é DecimalType
+            if not isinstance(actual_type, DecimalType):
+                raise ETLException(
+                    f"Tipo incorreto após cast final: esperado DecimalType, "
+                    f"obtido {type(actual_type).__name__}"
+                )
+            
+            # Verificar precisão e escala específicas do cast final
+            precision = actual_type.precision
+            scale = actual_type.scale
+            
+            # Validar que temos exatamente DecimalType(10, 2)
+            if precision != 10 or scale != 2:
+                raise ETLException(
+                    f"Precisão incorreta após cast: esperado DecimalType(10, 2), "
+                    f"obtido DecimalType({precision}, {scale})"
+                )
+            
+            self.logger.info(
+                f"✓ Cast final validado: vlr_transacao_movimento_final = DecimalType({precision}, {scale})"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"✗ Erro na validação do cast final: {str(e)}")
+            raise ETLException(f"Falha na validação do cast final: {str(e)}")
     
     def run(self) -> None:
         """
