@@ -113,6 +113,186 @@ WARN - AVISO: Transações negativas em vlr_transacao: 0.10% > 0.00%
 INFO - OK: Volume estável em movimento: 25.00% <= 50.00%
 ```
 
+## 🔒 Verificações de Proteção de Dados Pessoais (PII)
+
+Além das verificações básicas de qualidade, o pipeline implementa validações rigorosas para proteção de dados pessoais identificáveis (PII).
+
+### Implementação Técnica
+
+#### 1. Mascaramento de Números de Cartão
+
+**Função de Mascaramento:**
+```python
+def mask_credit_card(card_number_col):
+    """
+    Mascara um número de cartão, mantendo apenas os 6 primeiros e 4 últimos dígitos
+    
+    Args:
+        card_number_col: Coluna com o número do cartão
+        
+    Returns:
+        Coluna Spark com o número do cartão mascarado
+    """
+    return F.when(
+        F.length(card_number_col) >= 10,
+        F.concat(
+            F.substring(card_number_col, 1, 6),    # Primeiros 6 dígitos
+            F.lit('******'),                      # 6 asteriscos
+            F.substring(card_number_col, -4, 4)    # Últimos 4 dígitos
+        )
+    ).otherwise('******' + F.substring(card_number_col, -4, 4))
+```
+
+**Validação de Formato:**
+```python
+def validate_pii_masking(df: DataFrame, logger=None) -> None:
+    """
+    Valida que dados sensíveis (PII) estão adequadamente mascarados
+    """
+    # Verifica se contém apenas dígitos e asteriscos
+    # Valida comprimento: exatamente 16 caracteres
+    # Confirma dígitos nas posições corretas
+    # Rejeita se formato inválido
+```
+
+#### 2. Hash SHA-256 Irreversível
+
+**Implementação:**
+```python
+def hash_sensitive_data(column, salt=Config.HASH_SALT):
+    """
+    Gera um hash SHA-256 de uma coluna com salt para anonimização IRREVERSÍVEL
+    """
+    salted_value = F.concat(column.cast("string"), F.lit(salt))
+    return F.sha2(salted_value, 256)  # 64 caracteres hexadecimais
+```
+
+**Características:**
+- **Algoritmo**: SHA-256 (Secure Hash Algorithm 256-bit)
+- **Comprimento**: 64 caracteres hexadecimais
+- **Reversibilidade**: ❌ **IRREVERSÍVEL**
+- **Salt**: Configurável para segurança adicional
+
+**Exemplo de Transformação:**
+```
+Entrada: "joao.silva@email.com"
+Salt: "s1c00p3r4t1v3_s3cur3_s4lt"
+Saída: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12"
+```
+
+#### 3. Verificação de Segurança PAN
+
+**Detecção de Vazamentos:**
+```python
+def validate_no_full_pan_in_output(df: DataFrame, logger=None) -> None:
+    """
+    Verificação adicional: garante que NÃO há números de cartão completos (16 dígitos) no output
+    """
+    # Busca padrões de 16 dígitos seguidos (\b\d{16}\b)
+    # Detecta vazamentos acidentais em qualquer coluna
+    # Rejeita pipeline se PAN completo for encontrado
+```
+
+### Estratégia de Proteção
+
+#### Dados Protegidos
+
+| Dado | Estratégia | Exemplo Antes | Exemplo Depois | Reversibilidade |
+|------|------------|---------------|----------------|-----------------|
+| **Número do Cartão** | Mascaramento | `1234567890123456` | `123456******3456` | ❌ Irreversível |
+| **Email** | Mascaramento + Hash | `joao@email.com` | `joa****@email.com` | ❌ Irreversível |
+| **Dados Sensíveis** | Hash SHA-256 | `dados_originais` | `hash_64_chars` | ❌ Irreversível |
+
+#### Validações Automáticas
+
+**Durante Transformação:**
+1. ✅ Aplicação de mascaramento em números de cartão
+2. ✅ Aplicação de hash em dados sensíveis
+3. ✅ Validação de formato dos dados mascarados
+4. ✅ Verificação de ausência de PANs completos
+
+**Logs de Auditoria:**
+```
+✓ Mascaramento de números de cartão validado com sucesso
+✓ Hash SHA-256 de números de cartão validado com sucesso
+✓ Hash SHA-256 de emails validado com sucesso
+🔍 Verificação adicional: buscando números de cartão completos no output...
+✅ Verificação adicional: nenhum número de cartão completo encontrado no output
+```
+
+### Conformidade Regulatória
+
+#### Requisitos Atendidos
+
+- **LGPD (Brasil)**: Princípio da minimização de dados
+- **GDPR (Europa)**: Proteção de dados pessoais
+- **PCI DSS**: Não armazenamento de dados completos de cartão
+- **SOX**: Auditoria sem exposição de dados sensíveis
+
+#### Por que Hash Irreversível?
+
+**Vantagens Implementadas:**
+- ✅ **Conformidade**: Atende requisitos de anonimização
+- ✅ **Análise Estatística**: Permite agrupamento sem revelar dados pessoais
+- ✅ **Auditoria**: Mantém rastreabilidade sem comprometer privacidade
+- ✅ **Performance**: Rápido e eficiente para grandes volumes
+
+**Alternativas Avaliadas:**
+- ❌ **Token Reversível**: Complexo, risco de vazamento de chaves
+- ❌ **Criptografia**: Permite recuperação, não anonimização
+- ✅ **Hash Irreversível**: Máxima proteção, conformidade garantida
+
+### Configuração de Segurança
+
+**Arquivo `.env`:**
+```bash
+# Salt para hash de dados sensíveis
+HASH_SALT=s1c00p3r4t1v3_s3cur3_s4lt
+
+# Configurações de validação PII
+PII_VALIDATION_ENABLED=true
+PAN_DETECTION_ENABLED=true
+```
+
+**Produção:**
+- Alterar `HASH_SALT` para valor único e secreto
+- Habilitar monitoramento de métricas de validação PII
+- Configurar alertas para falhas de mascaramento
+
+### Monitoramento e Alertas
+
+**Métricas Coletadas:**
+- `pii_validation_success_rate`: Taxa de sucesso das validações PII
+- `pii_masking_failures`: Número de falhas de mascaramento
+- `pan_detection_events`: Eventos de detecção de PAN completo
+
+**Alertas Configurados:**
+- 🚨 Falha crítica em validações PII
+- ⚠️ Detecção de dados potencialmente sensíveis
+- 🔍 Anomalias no processo de mascaramento
+
+### Troubleshooting
+
+#### Problemas Comuns
+
+1. **Dados não mascarados adequadamente**
+   ```bash
+   # Verificar se funções de mascaramento estão sendo chamadas
+   grep -n "mask_credit_card\|hash_sensitive_data" src/etl_pipeline.py
+   ```
+
+2. **Validações falhando**
+   ```bash
+   # Verificar formato dos dados mascarados
+   head -5 output/csv/*.csv | grep numero_cartao_masked
+   ```
+
+3. **Performance impactada**
+   ```bash
+   # Otimizar validações para grandes volumes
+   # Modificar validate_pii_masking para amostrar dados
+   ```
+
 ## Configuração
 
 ### Variáveis de Ambiente

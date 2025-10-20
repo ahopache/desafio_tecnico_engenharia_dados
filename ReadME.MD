@@ -279,6 +279,61 @@ Para garantir a máxima confiabilidade e consistência dos dados, foram implemen
 
 Esta abordagem garante que os dados mantenham sua integridade em todo o pipeline, desde a extração até a análise final, reduzindo significativamente o risco de erros de interpretação ou perda de precisão.
 
+## 🔐 Proteção de Dados Pessoais (PII)
+
+O pipeline implementa estratégias rigorosas de proteção de dados pessoais identificáveis (PII) para garantir conformidade com leis de privacidade como LGPD e GDPR.
+
+### Estratégia de Proteção
+
+#### Dados Sensíveis Tratados
+
+1. **Números de Cartão (PAN)**
+   - **Mascaramento**: Mostra apenas primeiros 6 e últimos 4 dígitos
+   - **Formato Final**: `123456******3456`
+   - **Reversibilidade**: ❌ Irreversível
+
+2. **Emails de Associados**
+   - **Mascaramento**: Oculta nome de usuário, mantém domínio
+   - **Formato Final**: `joa****@email.com`
+   - **Hash SHA-256**: Para análise estatística sem revelar dados reais
+
+#### Características Técnicas
+
+- **Algoritmo de Hash**: SHA-256 (irreversível)
+- **Salt Configurável**: Segurança adicional contra ataques de rainbow table
+- **Validações Automáticas**: Garante que dados estejam adequadamente protegidos
+- **Auditoria Completa**: Logs detalhados de todas as validações
+
+#### Colunas no Output Final
+
+| Coluna | Tipo | Proteção | Reversibilidade |
+|--------|------|----------|-----------------|
+| `numero_cartao_masked` | String | Mascarado | ❌ Irreversível |
+| `numero_cartao_hash` | String | Hash SHA-256 | ❌ Irreversível |
+| `email_masked` | String | Mascarado | ❌ Irreversível |
+| `email_hash` | String | Hash SHA-256 | ❌ Irreversível |
+
+### Conformidade Regulatória
+
+- **LGPD (Brasil)**: Atende requisitos de anonimização
+- **GDPR (Europa)**: Compatível com princípios de proteção de dados
+- **PCI DSS**: Não armazena dados completos de cartão
+- **SOX**: Mantém auditoria sem comprometer privacidade
+
+### Trade-offs Avaliados
+
+**Hash Irreversível (Implementado)**:
+- ✅ Máxima proteção de privacidade
+- ✅ Conformidade regulatória
+- ✅ Simplicidade de implementação
+
+**Token Reversível (Rejeitado)**:
+- ❌ Complexidade adicional
+- ❌ Risco de vazamento de chaves
+- ❌ Não atende anonimização LGPD
+
+> 📋 **Detalhes técnicos**: Para implementação técnica completa, consulte [`src/data_quality.md`](src/data_quality.md)
+
 ## 📁 Estrutura do Projeto
 
 ```

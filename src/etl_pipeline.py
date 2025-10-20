@@ -23,7 +23,9 @@ from utils import (
     print_statistics,
     ETLException,
     mask_credit_card,
-    hash_sensitive_data
+    hash_sensitive_data,
+    validate_pii_masking,
+    validate_no_full_pan_in_output
 )
 from data_quality import DataQualityChecker, QualityCheckStatus
 from observability import observability_manager
@@ -376,6 +378,12 @@ class SiCooperativeETL:
             # Validar que todas as datas estão em formato ISO8601 UTC
             self._validate_datetime_formats(df_transformed)
             
+            # Validar mascaramento de dados sensíveis (PII)
+            validate_pii_masking(df_transformed, self.logger)
+            
+            # Verificação adicional de segurança: garantir que não há PANs completos no output
+            validate_no_full_pan_in_output(df_transformed, self.logger)
+            
             self.logger.info("✓ Transformações concluídas")
             self.logger.info("✓ Todas as datas convertidas para UTC com timezone America/Sao_Paulo")
             
@@ -460,6 +468,8 @@ class SiCooperativeETL:
                 self.logger.info("✓ Ordenação determinística aplicada (data_movimento, id_movimento)")
                 self.logger.info("✓ Precisão numérica garantida: DecimalType(10,2) aplicado antes da escrita")
                 self.logger.info("✓ Formato de data: ISO8601 UTC com timezone America/Sao_Paulo")
+                self.logger.info("✓ Mascaramento PII validado: números de cartão e emails adequadamente protegidos")
+                self.logger.info("✓ Verificação de segurança PAN: nenhum número de cartão completo detectado")
             
             # Gerar Parquet se solicitado
             if "parquet" in output_formats:
