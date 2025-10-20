@@ -154,6 +154,11 @@ class Config:
     # Configurações de Formato de Saída
     OUTPUT_FORMAT: str = os.getenv("OUTPUT_FORMAT", "csv,parquet")  # csv,parquet ou ambos separados por vírgula
     
+    # Configurações de Timezone
+    SOURCE_TIMEZONE: str = os.getenv("SOURCE_TIMEZONE", "America/Sao_Paulo")  # Timezone do banco de dados
+    OUTPUT_TIMEZONE: str = os.getenv("OUTPUT_TIMEZONE", "UTC")  # Timezone de saída (UTC por padrão)
+    DATETIME_FORMAT: str = os.getenv("DATETIME_FORMAT", "yyyy-MM-dd'T'HH:mm:ss'Z'")  # Formato ISO8601
+    
     # Configurações de Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")  # DEBUG, INFO, WARNING, ERROR
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

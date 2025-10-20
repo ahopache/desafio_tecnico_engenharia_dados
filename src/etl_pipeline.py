@@ -311,10 +311,11 @@ class SiCooperativeETL:
             # Selecionar e renomear colunas conforme especificação
             self.logger.info("Selecionando e renomeando colunas...")
             
-            # Converter data_movimento para timestamp com timezone UTC
+            # Converter data_movimento para timestamp com timezone UTC (convertendo do timezone America/Sao_Paulo)
+            # Documentação: Todas as datas são convertidas para UTC considerando que o banco está em America/Sao_Paulo
             df_joined = df_joined.withColumn(
                 "data_movimento_utc",
-                F.to_utc_timestamp("data_movimento", "UTC")
+                F.to_utc_timestamp("data_movimento", Config.SOURCE_TIMEZONE)
             )
             
             # Aplicar formatação de valores decimais
@@ -342,7 +343,7 @@ class SiCooperativeETL:
                 df_movimento.id.alias("id_movimento"),
                 F.col("vlr_transacao_decimal").alias("vlr_transacao_movimento"),
                 df_movimento.des_transacao.alias("des_transacao_movimento"),
-                F.date_format("data_movimento_utc", "yyyy-MM-dd'T'HH:mm:ss'Z'").alias("data_movimento"),
+                F.date_format("data_movimento_utc", Config.DATETIME_FORMAT).alias("data_movimento"),
                 
                 # Dados do cartão (mascarado e hash)
                 mask_credit_card(df_cartao.num_cartao).alias("numero_cartao_masked"),
@@ -351,16 +352,16 @@ class SiCooperativeETL:
                 df_cartao.nom_impresso.alias("nome_impresso_cartao"),
                 df_cartao.data_criacao.alias("dt_emissao_cartao"),
                 F.date_format(
-                    F.to_utc_timestamp("dt_emissao_cartao", "UTC"), 
-                    "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                    F.to_utc_timestamp("dt_emissao_cartao", Config.SOURCE_TIMEZONE), 
+                    Config.DATETIME_FORMAT
                 ).alias("data_emissao_cartao"),
                 
                 # Dados da conta
                 df_conta.tipo.alias("tipo_conta"),
                 df_conta.data_criacao.alias("dt_criacao_conta"),
                 F.date_format(
-                    F.to_utc_timestamp("dt_criacao_conta", "UTC"),
-                    "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                    F.to_utc_timestamp("dt_criacao_conta", Config.SOURCE_TIMEZONE),
+                    Config.DATETIME_FORMAT
                 ).alias("data_criacao_conta")
             )
             
@@ -372,7 +373,11 @@ class SiCooperativeETL:
                 required_columns=Config.OUTPUT_COLUMNS
             )
             
+            # Validar que todas as datas estão em formato ISO8601 UTC
+            self._validate_datetime_formats(df_transformed)
+            
             self.logger.info("✓ Transformações concluídas")
+            self.logger.info("✓ Todas as datas convertidas para UTC com timezone America/Sao_Paulo")
             
             return df_transformed
             
@@ -446,7 +451,7 @@ class SiCooperativeETL:
                     .option("charset", "UTF-8") \
                     .option("quoteAll", False) \
                     .option("quoteMode", "MINIMAL") \
-                    .option("timestampFormat", "yyyy-MM-dd'T'HH:mm:ss'Z'") \
+                    .option("timestampFormat", Config.DATETIME_FORMAT) \
                     .option("decimalFormat", "########.00") \
                     .csv(csv_path)
                 
@@ -454,6 +459,7 @@ class SiCooperativeETL:
                 self.logger.info(f"✓ CSV gerado com sucesso em: {csv_path}")
                 self.logger.info("✓ Ordenação determinística aplicada (data_movimento, id_movimento)")
                 self.logger.info("✓ Precisão numérica garantida: DecimalType(10,2) aplicado antes da escrita")
+                self.logger.info("✓ Formato de data: ISO8601 UTC com timezone America/Sao_Paulo")
             
             # Gerar Parquet se solicitado
             if "parquet" in output_formats:
@@ -579,6 +585,49 @@ class SiCooperativeETL:
         except Exception as e:
             self.logger.error(f"✗ Erro na validação do cast final: {str(e)}")
             raise ETLException(f"Falha na validação do cast final: {str(e)}")
+    
+    def _validate_datetime_formats(self, df: DataFrame) -> None:
+        """
+        Valida que todas as colunas de data estão no formato ISO8601 UTC correto
+        
+        Args:
+            df: DataFrame a ser validado
+            
+        Raises:
+            ETLException: Se formatos de data não estiverem corretos
+        """
+        try:
+            # Colunas de data que devem estar em formato ISO8601 com Z
+            datetime_columns = [
+                "data_movimento",
+                "data_emissao_cartao", 
+                "data_criacao_conta"
+            ]
+            
+            # Verificar se todas as colunas de data existem
+            missing_columns = [col for col in datetime_columns if col not in df.columns]
+            if missing_columns:
+                raise ETLException(f"Colunas de data não encontradas: {missing_columns}")
+            
+            # Amostrar alguns valores para validar formato
+            sample_df = df.select(datetime_columns).limit(5)
+            
+            for row in sample_df.collect():
+                for col in datetime_columns:
+                    value = row[col]
+                    if value:
+                        # Verificar se termina com 'Z' (UTC)
+                        if not str(value).endswith('Z'):
+                            raise ETLException(
+                                f"Data não está em formato UTC: {col} = {value}. "
+                                f"Esperado formato ISO8601 terminando com 'Z'"
+                            )
+            
+            self.logger.info(f"✓ Formatos de data validados: {len(datetime_columns)} colunas em ISO8601 UTC")
+            
+        except Exception as e:
+            self.logger.error(f"✗ Erro na validação de formatos de data: {str(e)}")
+            raise ETLException(f"Falha na validação de formatos de data: {str(e)}")
     
     def run(self) -> None:
         """
