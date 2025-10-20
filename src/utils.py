@@ -407,50 +407,52 @@ def validate_pii_masking(df: DataFrame, logger=None) -> None:
     except Exception as e:
         logger.error(f"✗ Erro na validação de PII: {str(e)}")
         raise ValidationException(f"Falha na validação de mascaramento PII: {str(e)}")
+        
+def validate_no_full_pan_in_output(df: DataFrame, logger=None) -> None:
     """
     Verificação adicional: garante que NÃO há números de cartão completos (16 dígitos) no output
-    
+
     Esta é uma camada extra de segurança para detectar vazamentos acidentais de PAN.
-    
+
     Args:
         df: DataFrame a ser verificado
         logger: Logger opcional
-        
+
     Raises:
         ValidationException: Se números de cartão completos forem encontrados
     """
     if logger is None:
         logger = setup_logger(__name__)
-    
+
     try:
         logger.info("🔍 Verificação adicional: buscando números de cartão completos no output...")
-        
+
         # Regex para detectar padrões de 16 dígitos seguidos
         # Isso pode aparecer em qualquer coluna de string
         string_columns = [field.name for field in df.schema.fields if field.dataType.simpleString() == 'string']
-        
+
         if not string_columns:
             logger.info("✓ Nenhuma coluna de string encontrada - verificação não aplicável")
             return
-        
+
         # Amostrar dados para verificação (limitar para performance)
         sample_df = df.select(*string_columns).limit(100)  # Amostra de 100 linhas
-        
+
         pan_pattern = r'\b\d{16}\b'  # 16 dígitos seguidos
-        
+
         for col in string_columns:
             for row in sample_df.collect():
                 value = str(row[col]) if row[col] is not None else ""
-                
+
                 # Verificar se há 16 dígitos seguidos (PAN completo)
                 if re.search(pan_pattern, value):
                     raise ValidationException(
                         f"🚨 VAZAMENTO DETECTADO! Número de cartão completo encontrado "
                         f"na coluna '{col}': {value[:50]}..."
                     )
-        
+
         logger.info("✅ Verificação adicional: nenhum número de cartão completo encontrado no output")
-        
+
     except Exception as e:
         logger.error(f"✗ Erro na verificação de PAN completo: {str(e)}")
         raise ValidationException(f"Falha na verificação de segurança PAN: {str(e)}")

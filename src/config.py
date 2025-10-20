@@ -159,7 +159,17 @@ class Config:
     OUTPUT_TIMEZONE: str = os.getenv("OUTPUT_TIMEZONE", "UTC")  # Timezone de saída (UTC por padrão)
     DATETIME_FORMAT: str = os.getenv("DATETIME_FORMAT", "yyyy-MM-dd'T'HH:mm:ss'Z'")  # Formato ISO8601
     
-    # Configurações de Logging
+    # Configurações de Processamento Incremental
+    INCREMENTAL_PROCESSING: bool = os.getenv("INCREMENTAL_PROCESSING", "true").lower() == "true"  # Habilitar processamento incremental
+    WATERMARK_TABLE: str = "etl_metadata"  # Tabela de controle de watermark
+    LOOKBACK_DAYS: int = int(os.getenv("LOOKBACK_DAYS", "7"))  # Dias para buscar dados antigos (para late arrivals)
+    RETRY_ATTEMPTS: int = int(os.getenv("RETRY_ATTEMPTS", "3"))  # Número máximo de tentativas de retry
+    RETRY_DELAY_SECONDS: int = int(os.getenv("RETRY_DELAY_SECONDS", "60"))  # Delay entre retries (segundos)
+    
+    # Configurações de Atomic Writes
+    ATOMIC_WRITES_ENABLED: bool = os.getenv("ATOMIC_WRITES_ENABLED", "true").lower() == "true"  # Habilitar atomic writes
+    TEMP_DIR_SUFFIX: str = os.getenv("TEMP_DIR_SUFFIX", "_temp")  # Sufixo para diretórios temporários
+    CLEANUP_TEMP_FILES: bool = os.getenv("CLEANUP_TEMP_FILES", "true").lower() == "true"  # Limpar arquivos temporários em caso de erro
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")  # DEBUG, INFO, WARNING, ERROR
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
@@ -248,9 +258,12 @@ class Config:
                     print(f"{key}: {value}")
 
     @classmethod
-    def get_spark_config(cls):
+    def get_spark_config(cls) -> dict:
         """
-        Retorna as configurações do Spark
+        Retorna configurações básicas do Spark
+
+        Returns:
+            dict: Configurações do Spark
         """
         return {
             "spark.app.name": cls.SPARK_APP_NAME,

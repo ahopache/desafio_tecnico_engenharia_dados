@@ -256,28 +256,312 @@ class SiCooperativeETL:
 
         return df_associado, df_conta, df_cartao, df_movimento
     
-    def transform_and_join(
-        self,
-        df_associado: DataFrame,
-        df_conta: DataFrame,
-        df_cartao: DataFrame,
-        df_movimento: DataFrame
-    ) -> DataFrame:
+    def extract_all_tables_incremental(self) -> Tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
         """
-        Realiza transformações e JOINs (Silver Layer)
-        
-        Estratégia de JOIN:
-        movimento → cartao → conta → associado
-        
-        Args:
-            df_associado: DataFrame de associados
-            df_conta: DataFrame de contas
-            df_cartao: DataFrame de cartões
-            df_movimento: DataFrame de movimentos
-        
+        Extrai todas as tabelas necessárias usando processamento incremental (Bronze Layer)
+
         Returns:
-            DataFrame: Dados consolidados
+            Tuple: (df_associado, df_conta, df_cartao, df_movimento)
         """
+        print_banner("ETAPA 1: EXTRAÇÃO INCREMENTAL (Bronze Layer)")
+
+        # Extrair tabelas usando processamento incremental
+        df_associado = self._extract_table_incremental("associado")
+        df_conta = self._extract_table_incremental("conta")
+        df_cartao = self._extract_table_incremental("cartao")
+        df_movimento = self._extract_table_incremental("movimento")
+
+        # Verificações de qualidade de dados
+        print_banner("ETAPA 1.1: VERIFICAÇÕES DE QUALIDADE DE DADOS")
+
+        quality_timer_id = observability_manager.get_collector().start_timer("quality_checks")
+        quality_checker = DataQualityChecker()
+
+        # Verificar qualidade dos dados extraídos
+        quality_checker.run_quality_checks(df_associado, "associado")
+        quality_checker.run_quality_checks(df_conta, "conta")
+        quality_checker.run_quality_checks(df_cartao, "cartao")
+        quality_checker.run_quality_checks(df_movimento, "movimento")
+
+        quality_result = observability_manager.get_collector().stop_timer(quality_timer_id)
+
+        # Registrar métricas de qualidade
+        if quality_result and observability_manager.is_enabled():
+            total_checks = len(quality_checker.results)
+            failed_checks = len(quality_checker.get_failed_checks())
+            warning_checks = len(quality_checker.get_warning_checks())
+
+            observability_manager.get_collector().record_gauge(
+                "etl_quality_checks_total", total_checks, {"stage": "extract"}
+            )
+            observability_manager.get_collector().record_gauge(
+                "etl_quality_checks_failed", failed_checks, {"stage": "extract"}
+            )
+            observability_manager.get_collector().record_gauge(
+                "etl_quality_checks_warnings", warning_checks, {"stage": "extract"}
+            )
+
+        # Verificar se pipeline deve ser rejeitado
+        if quality_checker.should_reject_pipeline():
+            error_msg = "Pipeline rejeitado devido a falhas críticas de qualidade de dados"
+            self.logger.error(f"❌ {error_msg}")
+
+            # Gerar relatório de qualidade
+            quality_report = quality_checker.generate_quality_report()
+            self.logger.error("Relatório de qualidade:\n" + quality_report)
+
+            raise ETLException(error_msg)
+
+        # Log avisos de qualidade
+        warnings = quality_checker.get_warning_checks()
+        if warnings:
+            self.logger.warning(f"⚠️ Avisos de qualidade detectados: {len(warnings)}")
+            for warning in warnings:
+                self.logger.warning(f"  - {warning.message}")
+
+        # Atualizar estatísticas de qualidade
+        quality_stats = {
+            'total': len(quality_checker.results),
+            'passed': len([r for r in quality_checker.results if r.status.value == 'PASS']),
+            'warnings': len(warnings),
+            'failed': len(quality_checker.get_failed_checks())
+        }
+        self.stats['quality_checks'] = quality_stats
+
+        # Validar DataFrames
+        validate_dataframe(df_associado, "associado", min_rows=1)
+        validate_dataframe(df_conta, "conta", min_rows=1)
+        validate_dataframe(df_cartao, "cartao", min_rows=1)
+        validate_dataframe(df_movimento, "movimento", min_rows=1)
+
+        # Atualizar estatísticas
+        self.stats["registros_associado"] = df_associado.count()
+        self.stats["registros_conta"] = df_conta.count()
+        self.stats["registros_cartao"] = df_cartao.count()
+        self.stats["registros_movimento"] = df_movimento.count()
+
+    def _extract_table_incremental(self, table_name: str) -> DataFrame:
+        """
+        Extrai dados de uma tabela usando processamento incremental baseado em watermark
+
+        Args:
+            table_name: Nome da tabela a ser extraída
+
+        Returns:
+            DataFrame: Dados extraídos incrementalmente
+        """
+        try:
+            # Obter informações do watermark
+            watermark_info = self._get_watermark_info(table_name)
+            last_processed_ts = watermark_info.get("last_processed_ts")
+
+            # Construir query incremental usando abordagem simplificada
+            incremental_query = self._get_incremental_query_simplified(table_name, last_processed_ts)
+
+            self.logger.info(f"📊 Extraindo tabela '{table_name}' incrementalmente desde: {last_processed_ts}")
+            self.logger.info(f"📋 Query: {incremental_query}")
+
+            # Usar o método existente extract_table com query personalizada
+            jdbc_options = {
+                "url": Config.get_mysql_jdbc_url(),
+                "dbtable": incremental_query,
+                "user": Config.MYSQL_USER,
+                "password": Config.MYSQL_PASSWORD,
+                "driver": "com.mysql.cj.jdbc.Driver"
+            }
+
+            # Adicionar opções de particionamento se aplicável
+            partition_options = Config.get_jdbc_partition_options(table_name)
+            if partition_options:
+                jdbc_options.update(partition_options)
+                self.logger.info(f"✓ Usando particionamento JDBC para tabela '{table_name}': {partition_options}")
+
+            # Construir o DataFrame com as opções apropriadas
+            df = self.spark.read \
+                .format("jdbc") \
+                .options(**jdbc_options) \
+                .load()
+
+            count = df.count()
+            self.logger.info(f"✓ Tabela '{table_name}' extraída incrementalmente: {count} registros")
+
+            return df
+
+        except Exception as e:
+            self.logger.error(f"✗ Erro ao extrair tabela '{table_name}' incrementalmente: {str(e)}")
+            raise ETLException(f"Falha na extração incremental da tabela '{table_name}': {str(e)}")
+
+    def _get_incremental_query_simplified(self, table_name: str, last_processed_ts: str) -> str:
+        """
+        Constrói query SQL simplificada para extração incremental
+
+        Args:
+            table_name: Nome da tabela
+            last_processed_ts: Último timestamp processado
+
+        Returns:
+            str: Query SQL para extração incremental
+        """
+        table_config = {
+            "associado": {"timestamp_col": "data_criacao"},
+            "conta": {"timestamp_col": "data_criacao"},
+            "cartao": {"timestamp_col": "data_criacao"},
+            "movimento": {"timestamp_col": "data_movimento"}
+        }
+
+        if table_name not in table_config:
+            raise ETLException(f"Tabela '{table_name}' não configurada para processamento incremental")
+
+        timestamp_col = table_config[table_name]["timestamp_col"]
+
+        if last_processed_ts is None:
+            # Primeira execução - buscar todos os dados
+            query = table_name
+        else:
+            # Extração incremental com lookback window
+            lookback_days = Config.LOOKBACK_DAYS
+            query = f"{table_name} WHERE {timestamp_col} >= DATE_SUB('{last_processed_ts}', INTERVAL {lookback_days} DAY)"
+
+        return query
+
+    def _get_watermark_info(self, table_name: str) -> dict:
+        """
+        Obtém informações do watermark para uma tabela específica
+
+        Args:
+            table_name: Nome da tabela
+
+        Returns:
+            dict: Informações do watermark (last_processed_ts, last_processed_id, etc.)
+        """
+        try:
+            # Usar query direta simples para verificar tabela
+            schema_name = Config.MYSQL_DATABASE
+            table_name_check = Config.WATERMARK_TABLE
+
+            check_query = f"(SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name_check}') as query_count"
+
+            self.logger.info(f"🔍 Verificando existência da tabela de watermark com query: {check_query}")
+
+            result = self.spark.read \
+                .format("jdbc") \
+                .option("url", Config.get_mysql_jdbc_url()) \
+                .option("dbtable", check_query) \
+                .option("user", Config.MYSQL_USER) \
+                .option("password", Config.MYSQL_PASSWORD) \
+                .option("driver", "com.mysql.cj.jdbc.Driver") \
+                .load()
+
+            if result.first()["count"] == 0:
+                # Tabela não existe, criar primeira entrada
+                self.logger.info(f"🏗️ Criando primeira entrada de watermark para tabela '{table_name}'")
+                return {
+                    "table_name": table_name,
+                    "last_processed_ts": None,
+                    "last_processed_id": None,
+                    "records_processed": 0,
+                    "execution_status": "pending"
+                }
+
+            # Buscar informações do watermark
+            watermark_query = f"(SELECT table_name, last_processed_ts, last_processed_id, records_processed, execution_status, started_at, completed_at FROM {table_name_check} WHERE table_name = '{table_name}') as query_watermark"
+
+            self.logger.info(f"🔍 Buscando watermark com query: {watermark_query}")
+
+            watermark_df = self.spark.read \
+                .format("jdbc") \
+                .option("url", Config.get_mysql_jdbc_url()) \
+                .option("dbtable", watermark_query) \
+                .option("user", Config.MYSQL_USER) \
+                .option("password", Config.MYSQL_PASSWORD) \
+                .option("driver", "com.mysql.cj.jdbc.Driver") \
+                .load()
+
+            if watermark_df.count() == 0:
+                # Não há entrada para esta tabela, criar
+                return {
+                    "table_name": table_name,
+                    "last_processed_ts": None,
+                    "last_processed_id": None,
+                    "records_processed": 0,
+                    "execution_status": "pending"
+                }
+            else:
+                # Retornar informações existentes
+                row = watermark_df.first()
+                return {
+                    "table_name": row["table_name"],
+                    "last_processed_ts": row["last_processed_ts"],
+                    "last_processed_id": row["last_processed_id"],
+                    "records_processed": row["records_processed"],
+                    "execution_status": row["execution_status"],
+                    "started_at": row["started_at"],
+                    "completed_at": row["completed_at"]
+                }
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Erro ao obter informações do watermark: {str(e)}")
+            # Em caso de erro, assumir primeira execução
+            return {
+                "table_name": table_name,
+                "last_processed_ts": None,
+                "last_processed_id": None,
+                "records_processed": 0,
+                "execution_status": "pending"
+            }
+
+    def _update_watermark(self, table_name: str, records_processed: int, last_timestamp: str) -> None:
+        """
+        Atualiza informações do watermark para uma tabela
+
+        Args:
+            table_name: Nome da tabela
+            records_processed: Número de registros processados
+            last_timestamp: Último timestamp processado
+        """
+        try:
+            # Verificar se a tabela etl_metadata existe
+            schema_name = Config.MYSQL_DATABASE
+            table_name_check = Config.WATERMARK_TABLE
+
+            check_query = f"(SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = '{schema_name}' AND table_name = '{table_name_check}') as query_count"
+
+            self.logger.info(f"🔍 Verificando tabela de watermark com query: {check_query}")
+
+            result = self.spark.read \
+                .format("jdbc") \
+                .option("url", Config.get_mysql_jdbc_url()) \
+                .option("dbtable", check_query) \
+                .option("user", Config.MYSQL_USER) \
+                .option("password", Config.MYSQL_PASSWORD) \
+                .option("driver", "com.mysql.cj.jdbc.Driver") \
+                .load()
+
+            if result.first()["count"] == 0:
+                self.logger.warning(f"⚠️ Tabela de watermark '{table_name_check}' não existe")
+                return
+
+            # Atualizar ou inserir informações do watermark
+            update_query = f"INSERT INTO {table_name_check} (table_name, last_processed_ts, records_processed, execution_status, completed_at) VALUES ('{table_name}', '{last_timestamp}', {records_processed}, 'completed', NOW()) ON DUPLICATE KEY UPDATE last_processed_ts = VALUES(last_processed_ts), records_processed = VALUES(records_processed), execution_status = VALUES(execution_status), completed_at = VALUES(completed_at)"
+
+            self.logger.info(f"🔄 Atualizando watermark com query: {update_query}")
+
+            # Executar atualização usando JDBC
+            self.spark.read \
+                .format("jdbc") \
+                .option("url", Config.get_mysql_jdbc_url()) \
+                .option("dbtable", update_query) \
+                .option("user", Config.MYSQL_USER) \
+                .option("password", Config.MYSQL_PASSWORD) \
+                .option("driver", "com.mysql.cj.jdbc.Driver") \
+                .load()
+
+            self.logger.info(f"✓ Watermark atualizado para tabela '{table_name}': {records_processed} registros, último timestamp: {last_timestamp}")
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ Erro ao atualizar status do watermark: {str(e)}")
+
+    def transform_and_join(self):
         print_banner("ETAPA 2: TRANSFORMAÇÃO (Silver Layer)")
         
         self.logger.info("Iniciando JOINs entre tabelas...")
@@ -393,107 +677,86 @@ class SiCooperativeETL:
             self.logger.error(f"✗ Erro nas transformações: {str(e)}")
             raise ETLException(f"Falha nas transformações: {str(e)}")
     
-    def load_to_csv(self, df: DataFrame) -> dict:
+    def load_to_csv_atomic(self, df: DataFrame) -> dict:
         """
-        Carrega dados nos formatos configurados (CSV e/ou Parquet)
+        Carrega dados para CSV usando atomic write pattern com processamento incremental
         
         Args:
-            df: DataFrame transformado
+            df: DataFrame a ser salvo
             
         Returns:
-            dict: Dicionário com caminhos dos arquivos gerados
+            dict: Caminhos dos arquivos gerados
         """
+        output_paths = {}
+        total_registros = df.count()
+        
         try:
-            # Criar diretório de saída
-            create_output_directory(self.output_dir)
-            
-            # Adicionar coluna de data para particionamento
-            df_with_date = df.withColumn(
-                "data_movimento_date",
-                F.to_date("data_movimento", "yyyy-MM-dd")
+            # Preparar dados para escrita
+            df_ordered = df.orderBy("data_movimento", "id_movimento")
+            df_with_precision = df_ordered.withColumn(
+                "vlr_transacao_movimento_final",
+                F.col("vlr_transacao_movimento").cast(DecimalType(10, 2))
             )
             
-            # Contar registros uma única vez
-            total_registros = df.count()
-            self.stats["registros_final"] = total_registros
+            # Validar que o cast foi aplicado corretamente
+            self._validate_final_decimal_precision(df_with_precision)
             
-            # Dicionário para armazenar os caminhos de saída
-            output_paths = {}
+            df_coalesced = df_with_precision.coalesce(1)
             
-            # Verificar quais formatos de saída usar
-            output_formats = [f.strip().lower() for f in Config.OUTPUT_FORMAT.split(",")]
+            # Criar caminhos temporários e finais
+            csv_final_path = f"{self.output_dir}/csv"
+            csv_temp_path = self._create_temp_output_directory(csv_final_path)
             
-            # Validação de tipos antes da escrita
-            self._validate_decimal_types(df)
+            # Escrever para temporário
+            self._atomic_write_with_cleanup(df_coalesced, csv_temp_path, csv_final_path, "csv")
             
-            # Gerar CSV se solicitado
-            if "csv" in output_formats:
-                csv_path = f"{self.output_dir}/csv"
-                create_output_directory(csv_path)
-                
-                # Aplicar ordenação determinística antes do coalesce
-                # Ordena por data_movimento (ASC) e id_movimento (ASC) para garantir ordem consistente
-                df_ordered = df.orderBy("data_movimento", "id_movimento")
-                
-                # Garantir precisão numérica com cast adicional para DecimalType(10,2)
-                # antes da escrita - isso garante que mesmo após transformações, temos exatamente 2 casas decimais
-                df_with_precision = df_ordered.withColumn(
-                    "vlr_transacao_movimento_final",
-                    F.col("vlr_transacao_movimento").cast(DecimalType(10, 2))
-                )
-                
-                # Validar que o cast foi aplicado corretamente
-                self._validate_final_decimal_precision(df_with_precision)
-                
-                # Coalescer para um único arquivo apenas para CSV
-                df_coalesced = df_with_precision.coalesce(1)
-                
-                # Configurar locale para garantir separador decimal ponto (.)
-                locale.setlocale(locale.LC_NUMERIC, 'C')
-                
-                df_coalesced.write \
-                    .mode(Config.OUTPUT_MODE) \
-                    .option("header", str(Config.OUTPUT_HEADER).lower()) \
-                    .option("delimiter", Config.OUTPUT_DELIMITER) \
-                    .option("encoding", Config.OUTPUT_ENCODING) \
-                    .option("charset", "UTF-8") \
-                    .option("quoteAll", False) \
-                    .option("quoteMode", "MINIMAL") \
-                    .option("timestampFormat", Config.DATETIME_FORMAT) \
-                    .option("decimalFormat", "########.00") \
-                    .csv(csv_path)
-                
-                output_paths["csv"] = csv_path
-                self.logger.info(f"✓ CSV gerado com sucesso em: {csv_path}")
-                self.logger.info("✓ Ordenação determinística aplicada (data_movimento, id_movimento)")
-                self.logger.info("✓ Precisão numérica garantida: DecimalType(10,2) aplicado antes da escrita")
-                self.logger.info("✓ Formato de data: ISO8601 UTC com timezone America/Sao_Paulo")
-                self.logger.info("✓ Mascaramento PII validado: números de cartão e emails adequadamente protegidos")
-                self.logger.info("✓ Verificação de segurança PAN: nenhum número de cartão completo detectado")
+            output_paths["csv"] = csv_final_path
             
             # Gerar Parquet se solicitado
-            if "parquet" in output_formats:
-                parquet_path = f"{self.output_dir}/parquet"
-                create_output_directory(parquet_path)
+            if "parquet" in Config.OUTPUT_FORMAT:
+                parquet_final_path = f"{self.output_dir}/parquet"
+                parquet_temp_path = self._create_temp_output_directory(parquet_final_path)
                 
-                # Escrever Parquet particionado por data
-                df_with_date.write \
-                    .mode(Config.OUTPUT_MODE) \
-                    .partitionBy("data_movimento_date") \
-                    .option("compression", Config.PARQUET_COMPRESSION) \
-                    .parquet(parquet_path)
+                # Preparar dados para Parquet
+                df_with_date = df_with_precision.withColumn(
+                    "data_movimento_date",
+                    F.date_format("data_movimento", "yyyy-MM-dd")
+                )
                 
-                output_paths["parquet"] = parquet_path
-                self.logger.info(f"✓ Parquet particionado gerado em: {parquet_path}")
+                # Escrever para temporário
+                self._atomic_write_with_cleanup(df_with_date, parquet_temp_path, parquet_final_path, "parquet")
+                
+                output_paths["parquet"] = parquet_final_path
+            
+            # Atualizar watermarks após sucesso
+            if total_registros > 0:
+                # Encontrar último timestamp para atualizar watermark
+                last_timestamp_df = df.agg(F.max("data_movimento")).first()
+                last_timestamp = last_timestamp_df[0] if last_timestamp_df[0] else None
+                
+                self._update_watermark("movimento", total_registros, last_timestamp)
             
             self.logger.info(f"  Total de registros processados: {total_registros}")
-            
             return output_paths
             
         except Exception as e:
-            self.logger.error(f"✗ Erro ao salvar arquivos de saída: {str(e)}")
-            raise ETLException(f"Falha ao salvar arquivos de saída: {str(e)}")
+            self.logger.error(f"✗ Erro no load_to_csv_atomic: {str(e)}")
+            
+            # Limpar arquivos temporários em caso de erro geral
+            if Config.CLEANUP_TEMP_FILES:
+                temp_patterns = [f"{self.output_dir}/csv{Config.TEMP_DIR_SUFFIX}", 
+                               f"{self.output_dir}/parquet{Config.TEMP_DIR_SUFFIX}"]
+                for pattern in temp_patterns:
+                    self._cleanup_temp_directory(pattern)
+            
+            raise ETLException(f"Falha no atomic write: {str(e)}")
     
+    def load_to_csv(self, df: DataFrame) -> dict:
+        """
+        Método legado - redireciona para load_to_csv_atomic
+        """
+        return self.load_to_csv_atomic(df)
+            
     def _validate_decimal_types(self, df: DataFrame) -> None:
         """
         Valida que os tipos decimais estão corretos antes da escrita
@@ -632,19 +895,25 @@ class SiCooperativeETL:
                                 f"Data não está em formato UTC: {col} = {value}. "
                                 f"Esperado formato ISO8601 terminando com 'Z'"
                             )
-            
-            self.logger.info(f"✓ Formatos de data validados: {len(datetime_columns)} colunas em ISO8601 UTC")
-            
         except Exception as e:
-            self.logger.error(f"✗ Erro na validação de formatos de data: {str(e)}")
-            raise ETLException(f"Falha na validação de formatos de data: {str(e)}")
+            self.logger.warning(f"⚠️ Erro ao atualizar status do watermark: {str(e)}")
     
     def run(self) -> None:
         """
-        Executa o pipeline ETL completo
+        Executa o pipeline ETL completo (versão original mantida para compatibilidade)
         """
-        print_banner("INICIANDO PIPELINE ETL - SICOOPERATIVE", "=")
-
+        # Usar processamento incremental se habilitado
+        if Config.INCREMENTAL_PROCESSING:
+            self.run_incremental()
+        else:
+            self.run_full()
+    
+    def run_incremental(self) -> None:
+        """
+        Executa pipeline em modo incremental
+        """
+        print_banner("INICIANDO PIPELINE ETL - MODO INCREMENTAL", "=")
+        
         # Inicializar observabilidade
         if observability_manager.is_enabled():
             pipeline_timer_id = observability_manager.get_collector().start_timer("pipeline_total")
@@ -667,10 +936,155 @@ class SiCooperativeETL:
             validate_mysql_connection(self.spark)
             observability_manager.get_collector().stop_timer(mysql_timer_id)
 
-            # BRONZE: Extrair dados
+            # BRONZE: Extrair dados incrementalmente
+            extract_timer_id = observability_manager.get_collector().start_timer("extract_stage")
+            df_associado, df_conta, df_cartao, df_movimento = self.extract_all_tables_incremental()
+            extract_result = observability_manager.get_collector().stop_timer(extract_timer_id)
+            
+            # Verificar se há dados novos para processar
+            if df_movimento.count() == 0:
+                self.logger.info("📭 Nenhum dado novo encontrado - execução incremental concluída")
+                
+                # Ainda assim, finalizar métricas
+                self.stats["fim"] = time.time()
+                self.stats["duracao"] = format_duration(self.stats["fim"] - self.stats["inicio"])
+                
+                if observability_manager.is_enabled():
+                    observability_manager.get_collector().stop_timer(pipeline_timer_id)
+                
+                print_banner("PIPELINE INCREMENTAL CONCLUÍDO - NENHUM DADO NOVO", "=")
+                return
+            
+            # SILVER: Transformar e unir
+            transform_timer_id = observability_manager.get_collector().start_timer("transform_stage")
+            df_transformed = self.transform_and_join(df_associado, df_conta, df_cartao, df_movimento)
+            transform_result = observability_manager.get_collector().stop_timer(transform_timer_id)
+            
+            # GOLD: Carregar com atomic write
+            load_timer_id = observability_manager.get_collector().start_timer("load_stage")
+            output_paths = self.load_to_csv_atomic(df_transformed)
+            load_result = observability_manager.get_collector().stop_timer(load_timer_id)
+            
+            # Finalizar métricas
+            self.stats["fim"] = time.time()
+            self.stats["duracao"] = format_duration(self.stats["fim"] - self.stats["inicio"])
+            
+            # Parar timer total do pipeline
+            if observability_manager.is_enabled():
+                total_result = observability_manager.get_collector().stop_timer(pipeline_timer_id)
+                if total_result:
+                    observability_manager.get_collector().record_gauge(
+                        "etl_pipeline_duration_seconds",
+                        total_result.duration_seconds,
+                        {"status": "success", "mode": "incremental"}
+                    )
+            
+            print_banner("PIPELINE INCREMENTAL CONCLUÍDO COM SUCESSO!", "=")
+            print_statistics(self.stats)
+            
+            # Log de observabilidade
+            if observability_manager.is_enabled():
+                observability_manager.log_metrics_summary()
+                if observability_manager.push_to_gateway():
+                    self.logger.info("✅ Métricas enviadas para sistema de monitoramento externo")
+            
+        except Exception as e:
+            self.logger.error(f"✗ Pipeline incremental falhou: {str(e)}")
+            
+            # Registrar erro nas métricas
+            if observability_manager.is_enabled():
+                observability_manager.get_collector().record_error("pipeline_failure")
+                observability_manager.get_collector().stop_timer(pipeline_timer_id)
+            
+            raise
+        
+        finally:
+            # Encerrar sessão Spark
+            if self.spark:
+                self.spark.stop()
+                self.logger.info("Sessão Spark encerrada")
+    
+    def run_full(self) -> None:
+        """
+        Executa pipeline em modo completo (legacy)
+        """
+        print_banner("INICIANDO PIPELINE ETL - MODO COMPLETO", "=")
+        
+        # Inicializar observabilidade
+        if observability_manager.is_enabled():
+            pipeline_timer_id = observability_manager.get_collector().start_timer("pipeline_total")
+            self.logger.info("📊 Observabilidade habilitada - métricas serão coletadas")
+        
+        self.stats["inicio"] = time.time()
+        
+        try:
+            # Validar configurações
+            Config.validate()
+            Config.print_config()
+            
+            # Criar sessão Spark
+            spark_timer_id = observability_manager.get_collector().start_timer("spark_session_creation")
+            self.create_spark_session()
+            observability_manager.get_collector().stop_timer(spark_timer_id)
+            
+            # Validar conexão MySQL
+            mysql_timer_id = observability_manager.get_collector().start_timer("mysql_connection_validation")
+            validate_mysql_connection(self.spark)
+            observability_manager.get_collector().stop_timer(mysql_timer_id)
+            
+            # BRONZE: Extrair dados (modo completo)
             extract_timer_id = observability_manager.get_collector().start_timer("extract_stage")
             df_associado, df_conta, df_cartao, df_movimento = self.extract_all_tables()
             extract_result = observability_manager.get_collector().stop_timer(extract_timer_id)
+            
+            # SILVER: Transformar e unir
+            transform_timer_id = observability_manager.get_collector().start_timer("transform_stage")
+            df_transformed = self.transform_and_join(df_associado, df_conta, df_cartao, df_movimento)
+            transform_result = observability_manager.get_collector().stop_timer(transform_timer_id)
+            
+            # GOLD: Carregar
+            load_timer_id = observability_manager.get_collector().start_timer("load_stage")
+            output_paths = self.load_to_csv(df_transformed)
+            load_result = observability_manager.get_collector().stop_timer(load_timer_id)
+            
+            # Finalizar métricas
+            self.stats["fim"] = time.time()
+            self.stats["duracao"] = format_duration(self.stats["fim"] - self.stats["inicio"])
+            
+            # Parar timer total do pipeline
+            if observability_manager.is_enabled():
+                total_result = observability_manager.get_collector().stop_timer(pipeline_timer_id)
+                if total_result:
+                    observability_manager.get_collector().record_gauge(
+                        "etl_pipeline_duration_seconds",
+                        total_result.duration_seconds,
+                        {"status": "success", "mode": "full"}
+                    )
+            
+            print_banner("PIPELINE COMPLETO CONCLUÍDO COM SUCESSO!", "=")
+            print_statistics(self.stats)
+            
+            # Log de observabilidade
+            if observability_manager.is_enabled():
+                observability_manager.log_metrics_summary()
+                if observability_manager.push_to_gateway():
+                    self.logger.info("✅ Métricas enviadas para sistema de monitoramento externo")
+            
+        except Exception as e:
+            self.logger.error(f"✗ Pipeline completo falhou: {str(e)}")
+            
+            # Registrar erro nas métricas
+            if observability_manager.is_enabled():
+                observability_manager.get_collector().record_error("pipeline_failure")
+                observability_manager.get_collector().stop_timer(pipeline_timer_id)
+            
+            raise
+        
+        finally:
+            # Encerrar sessão Spark
+            if self.spark:
+                self.spark.stop()
+                self.logger.info("Sessão Spark encerrada")
 
             # Registrar métricas de extração
             if extract_result:
@@ -680,79 +1094,6 @@ class SiCooperativeETL:
                     records_input=0,  # Dados de entrada não medidos nesta etapa
                     records_output=self.stats.get("registros_movimento", 0)  # Total de movimentos como saída
                 )
-
-            # SILVER: Transformar e unir
-            transform_timer_id = observability_manager.get_collector().start_timer("transform_stage")
-            df_transformed = self.transform_and_join(
-                df_associado, df_conta, df_cartao, df_movimento
-            )
-            transform_result = observability_manager.get_collector().stop_timer(transform_timer_id)
-
-            # Registrar métricas de transformação
-            if transform_result:
-                observability_manager.get_collector().record_pipeline_stage(
-                    stage="transform",
-                    duration_seconds=transform_result.duration_seconds,
-                    records_input=self.stats.get("registros_movimento", 0),
-                    records_output=df_transformed.count()
-                )
-
-            # GOLD: Carregar CSV
-            load_timer_id = observability_manager.get_collector().start_timer("load_stage")
-            output_paths = self.load_to_csv(df_transformed)
-            load_result = observability_manager.get_collector().stop_timer(load_timer_id)
-
-            # Registrar métricas de load
-            if load_result:
-                observability_manager.get_collector().record_pipeline_stage(
-                    stage="load",
-                    duration_seconds=load_result.duration_seconds,
-                    records_input=df_transformed.count(),
-                    records_output=df_transformed.count()  # Mesmo número, apenas formato diferente
-                )
-
-            # Finalizar
-            self.stats["fim"] = time.time()
-            self.stats["duracao"] = format_duration(
-                self.stats["fim"] - self.stats["inicio"]
-            )
-
-            # Parar timer total do pipeline
-            if observability_manager.is_enabled():
-                total_result = observability_manager.get_collector().stop_timer(pipeline_timer_id)
-                if total_result:
-                    observability_manager.get_collector().record_gauge(
-                        "etl_pipeline_duration_seconds",
-                        total_result.duration_seconds,
-                        {"status": "success"}
-                    )
-
-            print_banner("PIPELINE CONCLUÍDO COM SUCESSO!", "=")
-            print_statistics(self.stats)
-
-            # Log de observabilidade
-            if observability_manager.is_enabled():
-                observability_manager.log_metrics_summary()
-
-                # Tentar enviar métricas para Prometheus se configurado
-                if observability_manager.push_to_gateway():
-                    self.logger.info("✅ Métricas enviadas para sistema de monitoramento externo")
-
-        except Exception as e:
-            self.logger.error(f"✗ Pipeline falhou: {str(e)}")
-
-            # Registrar erro nas métricas
-            if observability_manager.is_enabled():
-                observability_manager.get_collector().record_error("pipeline_failure")
-                observability_manager.get_collector().stop_timer(pipeline_timer_id)  # Parar timer mesmo com erro
-
-            raise
-
-        finally:
-            # Encerrar sessão Spark
-            if self.spark:
-                self.spark.stop()
-                self.logger.info("Sessão Spark encerrada")
 
 
 def main():

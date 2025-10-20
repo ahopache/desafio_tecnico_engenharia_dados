@@ -154,12 +154,35 @@ CREATE TABLE movimento (
   COLLATE=utf8mb4_unicode_ci
   COMMENT='Tabela de movimentações (transações) dos cartões';
 
--- Índices para otimização de queries
-CREATE INDEX idx_movimento_cartao ON movimento(id_cartao);
-CREATE INDEX idx_movimento_data ON movimento(data_movimento);
-CREATE INDEX idx_movimento_valor ON movimento(vlr_transacao);
-CREATE INDEX idx_movimento_tipo ON movimento(tipo_movimento);
-CREATE INDEX idx_movimento_categoria ON movimento(categoria);
+-- ============================================================================
+-- TABELA: etl_metadata
+-- Descrição: Controle de metadados do ETL para processamento incremental
+-- ============================================================================
+
+CREATE TABLE etl_metadata (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'Identificador único do metadado',
+    table_name VARCHAR(100) NOT NULL COMMENT 'Nome da tabela de origem',
+    last_processed_ts TIMESTAMP NULL COMMENT 'Último timestamp processado com sucesso',
+    last_processed_id INT NULL COMMENT 'Último ID processado (para tabelas sem timestamp)',
+    records_processed INT DEFAULT 0 COMMENT 'Número de registros processados na última execução',
+    execution_status ENUM('success', 'failed', 'running') DEFAULT 'running' COMMENT 'Status da última execução',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Início da execução',
+    completed_at TIMESTAMP NULL COMMENT 'Fim da execução',
+    error_message TEXT NULL COMMENT 'Mensagem de erro (se aplicável)',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Data de criação do registro',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Data de atualização do registro',
+    
+    -- Constraints
+    CONSTRAINT uk_etl_metadata_table_name UNIQUE (table_name)
+) ENGINE=InnoDB 
+  DEFAULT CHARSET=utf8mb4 
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='Tabela de controle de metadados do ETL para processamento incremental';
+
+-- Índices para otimização
+CREATE INDEX idx_etl_metadata_table ON etl_metadata(table_name);
+CREATE INDEX idx_etl_metadata_status ON etl_metadata(execution_status);
+CREATE INDEX idx_etl_metadata_timestamp ON etl_metadata(last_processed_ts);
 
 -- ============================================================================
 -- VIEWS AUXILIARES
