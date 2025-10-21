@@ -1,0 +1,109 @@
+﻿name: SiCooperative ETL Pipeline CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  MYSQL_VERSION: '8.0'
+
+jobs:
+  quality-tests:
+    name: Code Quality & Tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest flake8 black
+
+    - name: Run linting (flake8)
+      run: |
+        echo "🔍 Running flake8 linting..."
+        flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Run tests
+      run: |
+        echo "🧪 Running pytest tests..."
+        pytest tests/ -v --tb=short
+
+  integration-tests:
+    name: Docker & Integration Tests
+    runs-on: ubuntu-latest
+    needs: quality-tests
+
+    services:
+      mysql:
+        image: mysql:${{ env.MYSQL_VERSION }}
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: sicooperative_db
+          MYSQL_USER: etl_user
+          MYSQL_PASSWORD: etl_password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build Spark image
+      run: |
+        echo "🏗️ Building optimized Spark image..."
+        cd docker
+        docker build -t sicooperative-spark:latest .
+
+    - name: Create Docker secrets
+      run: |
+        mkdir -p docker/secrets
+        echo "root_password" > docker/secrets/mysql_root_password
+        echo "etl_password" > docker/secrets/mysql_password
+
+    - name: Wait for MySQL
+      run: |
+        for i in {1..30}; do
+          if mysqladmin ping -h localhost -u root -proot_password; then
+            echo "✅ MySQL is ready!"
+            break
+          fi
+          sleep 5
+        done
+
+    - name: Initialize database
+      run: |
+        mysql -h localhost -u root -proot_password sicooperative_db < sql/sicooperative_schema.sql
+
+    - name: Start services
+      run: |
+        cd docker
+        docker-compose up -d mysql spark
+
+    - name: Run ETL pipeline
+      run: |
+        cd docker
+        chmod +x run-pipeline.sh
+        timeout 300s ./run-pipeline.sh
+
+    - name: Verify outputs
+      run: |
+        if [ -f "output/csv/movimento_flat.csv" ]; then
+          echo "✅ CSV output found"
+          head -3 output/csv/movimento_flat.csv
+        else
+          echo "❌ CSV output not found"
+          exit 1
+        fi
