@@ -46,21 +46,22 @@ class TestConfig:
         assert Config.OUTPUT_FILENAME in path
     
     def test_output_columns_count(self):
-        """Testa se a lista de colunas de output tem 11 elementos"""
-        assert len(Config.OUTPUT_COLUMNS) == 11
+        """Testa se a lista de colunas de output tem 12 elementos"""
+        assert len(Config.OUTPUT_COLUMNS) == 12
     
     def test_output_columns_names(self):
         """Testa se as colunas de output estão corretas"""
         expected_columns = [
             "nome_associado",
-            "sobrenome_associado",
+            "sobrenome_associado", 
             "idade_associado",
+            "id_movimento",
             "vlr_transacao_movimento",
             "des_transacao_movimento",
             "data_movimento",
-            "numero_cartao",
+            "numero_cartao_masked",
             "nome_impresso_cartao",
-            "data_criacao_cartao",
+            "data_emissao_cartao",
             "tipo_conta",
             "data_criacao_conta"
         ]

@@ -46,7 +46,18 @@ Valida o pipeline ETL completo:
 - ✅ Criação de instância do ETL
 - ✅ Método transform_and_join
 
-**Total: 44 testes**
+### **test_idempotency.py** (8 testes) ⚡
+Valida estratégias de idempotência e processamento incremental:
+- ✅ Múltiplas execuções produzem mesmo resultado
+- ✅ Watermark persiste entre execuções
+- ✅ Atomic writes funcionam corretamente
+- ✅ Late arrivals são tratados pelo lookback
+- ✅ Estado consistente após falhas simuladas
+- ✅ Retry mechanism funciona com backoff
+- ✅ Não há duplicação de dados
+- ✅ Recuperação automática de falhas
+
+**Total: 52 testes**
 
 ## 🚀 Executar Testes
 
