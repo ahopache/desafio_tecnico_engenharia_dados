@@ -26,33 +26,45 @@ def check_null_percentage(self, df: DataFrame, column: str, threshold: float = 0
 
 **Aplicação**:
 - **Tabela**: `cartao`
-- **Campo**: `id_cartao`
+- **Campo**: `num_cartao`
 - **Limite**: 1% (0.01)
 - **Status**: FAIL se exceder limite
 
 **Exemplo**:
 ```
-❌ NULL em id_cartao: 2.50% > 1.00% (limite)
-✅ NULL em id_cartao: 0.50% <= 1.00%
+❌ NULL em num_cartao: 2.50% > 1.00% (limite)
+✅ NULL em num_cartao: 0.50% <= 1.00%
 ```
 
-#### 2. Verificação de Transações Negativas
+#### 2. Verificação de Duplicatas
 
-**Objetivo**: Alertar sobre presença de valores negativos em campos financeiros.
+**Objetivo**: Detectar registros duplicados que podem indicar problemas de ingestão.
 
 **Implementação**:
 ```python
-def check_negative_transactions(self, df: DataFrame, column: str, threshold: float = 0.0) -> QualityCheckResult
+def check_duplicate_records(self, df: DataFrame, columns: List[str], threshold: float = 0.0) -> QualityCheckResult
+```
+
+**Aplicação**:
+- **Tabela**: `movimento`
+- **Campos**: `["id", "id_cartao"]` (chave composta)
+- **Limite**: 0% (qualquer duplicata é problema)
+
+#### 3. Verificação de Valores Extremos
+
+**Objetivo**: Identificar valores fora de limites aceitáveis.
+
+**Implementação**:
+```python
+def check_extreme_values(self, df: DataFrame, column: str, min_val: float = None, max_val: float = None) -> QualityCheckResult
 ```
 
 **Aplicação**:
 - **Tabela**: `movimento`
 - **Campo**: `vlr_transacao`
-- **Limite**: 0% (qualquer valor negativo)
-- **Status**: WARN se detectar negativos
+- **Limites**: R$ 0.01 a R$ 100.000,00
 
-**Exemplo**:
-```
+#### 4. Verificação de Formato de Strings
 ⚠️ Transações negativas em vlr_transacao: 0.10% > 0.00%
 ✅ Transações negativas em vlr_transacao: 0.00% <= 0.00%
 ```
@@ -388,6 +400,241 @@ As verificações de qualidade de dados implementadas garantem:
 
 O sistema equilibra rigor com praticidade, rejeitando apenas problemas críticos enquanto alerta sobre questões que merecem atenção.
 
----
+## 📊 Sistema Avançado de Relatórios DQ
 
-**📋 Para documentação geral do projeto e instruções de uso, consulte o [README principal](../README.md).**
+### Relatórios Detalhados com Métricas
+
+O sistema implementa geração automática de relatórios avançados de qualidade de dados com métricas detalhadas em formato JSON.
+
+#### Funcionalidades do Relatório
+
+**Métricas por Coluna:**
+```json
+{
+  "column_name": {
+    "data_type": "decimal(10,2)",
+    "total_count": 1000,
+    "null_count": 5,
+    "null_percentage": 0.005,
+    "completeness_score": 0.995,
+    "numeric_stats": {
+      "min": 0.01,
+      "max": 1500.00,
+      "avg": 125.50,
+      "std": 87.32
+    },
+    "histogram": {
+      "0.01-150.00": 450,
+      "150.01-300.00": 320,
+      "300.01-450.00": 180,
+      "450.01-1500.00": 45
+    }
+  }
+}
+```
+
+#### Uso do Sistema de Relatórios
+
+```python
+from src.data_quality import DataQualityChecker
+
+# Inicializar checker
+checker = DataQualityChecker()
+
+# Executar verificações
+results = checker.run_quality_checks(df, "movimento")
+
+# Gerar relatório detalhado
+metrics = checker.generate_detailed_metrics(df, "movimento")
+
+# Salvar relatório em arquivo
+report_path = checker.save_detailed_report(df, "movimento", "dq_report.json")
+```
+
+#### Exemplo de Saída JSON Completa
+
+```json
+{
+  "table_name": "movimento",
+  "total_records": 1500,
+  "timestamp": 1699123456.789,
+  "summary": {
+    "status": "COMPLETED",
+    "total_checks": 4,
+    "passed_checks": 3,
+    "warning_checks": 1,
+    "failed_checks": 0
+  },
+  "columns": {
+    "vlr_transacao": {
+      "data_type": "decimal(10,2)",
+      "total_count": 1500,
+      "null_count": 0,
+      "null_percentage": 0.0,
+      "completeness_score": 1.0,
+      "numeric_stats": {
+        "min": 0.01,
+        "max": 1250.50,
+        "avg": 89.75,
+        "std": 156.23
+      },
+      "histogram": {
+        "0.01-125.05": 1200,
+        "125.06-250.10": 250,
+        "250.11-375.15": 35,
+        "375.16-1250.50": 15
+      }
+    }
+  },
+  "quality_checks": [
+    {
+      "check_name": "negative_check_vlr_transacao",
+      "status": "PASS",
+      "value": 0.0,
+      "threshold": 0.0,
+      "message": "Transações negativas em vlr_transacao: 0.00% <= 0.00%"
+    }
+  ]
+}
+```
+
+#### Benefícios do Sistema Avançado
+
+**Análise Detalhada:**
+- ✅ **Distribuição de valores** através de histogramas
+- ✅ **Estatísticas completas** (média, desvio padrão, min/max)
+- ✅ **Score de completude** por coluna
+- ✅ **Métricas de qualidade** consolidadas
+
+**Integração com Ferramentas:**
+- ✅ **Compatível com dashboards** (Grafana, Tableau)
+- ✅ **Formato padronizado** para análise automatizada
+- ✅ **Histórico temporal** de métricas
+- ✅ **Exportação automática** para sistemas externos
+
+### Exemplo Prático de Uso
+
+```python
+#!/usr/bin/env python3
+"""
+Exemplo de uso do sistema avançado de qualidade de dados
+"""
+
+from pyspark.sql import SparkSession
+from src.data_quality import DataQualityChecker
+from src.config import Config
+
+def main():
+    # Inicializar Spark
+    spark = SparkSession.builder \
+        .appName("SiCooperative-DQ-Demo") \
+        .master("local[*]") \
+        .getOrCreate()
+
+    # Dados de exemplo (movimento)
+    sample_data = [
+        (1, 150.50, "Compra em Zaffari", "2024-10-13", 1),
+        (2, 75.20, "Posto Ipiranga", "2024-10-12", 1),
+        (3, -200.00, "Estorno inválido", "2024-10-11", 2),  # Valor negativo (edge case)
+        (4, 89.90, "Restaurante", "2024-10-10", 3),
+        (5, 150.50, "Compra duplicada", "2024-10-13", 1),  # Duplicata (edge case)
+    ]
+
+    # Criar DataFrame
+    df = spark.createDataFrame(sample_data, [
+        "id", "vlr_transacao", "des_transacao", "data_movimento", "id_cartao"
+    ])
+
+    # Inicializar checker de qualidade
+    quality_checker = DataQualityChecker()
+
+    # Executar verificações específicas para tabela movimento
+    required_columns = ["id", "vlr_transacao", "des_transacao", "data_movimento", "id_cartao"]
+
+    print("🔍 Executando verificações de qualidade...")
+    results = quality_checker.run_quality_checks(df, "movimento", required_columns)
+
+    # Exibir resultados
+    print(f"\n📊 Resultados das verificações ({len(results)} checks):")
+    for result in results:
+        status_icon = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}[result.status.value]
+        print(f"{status_icon} {result.check_name}: {result.message}")
+
+    # Gerar relatório detalhado com métricas
+    print("
+📈 Gerando relatório detalhado..."    detailed_metrics = quality_checker.generate_detailed_metrics(df, "movimento")
+
+    print("
+📋 Resumo do relatório:"    print(f"   - Tabela: {detailed_metrics['table_name']}")
+    print(f"   - Total de registros: {detailed_metrics['total_records']}")
+    print(f"   - Checks realizados: {detailed_metrics['summary']['total_checks']}")
+    print(f"   - Status: {detailed_metrics['summary']['passed_checks']}✅ {detailed_metrics['summary']['warning_checks']}⚠️ {detailed_metrics['summary']['failed_checks']}❌")
+
+    # Exibir métricas de uma coluna específica
+    if "vlr_transacao" in detailed_metrics["columns"]:
+        col_metrics = detailed_metrics["columns"]["vlr_transacao"]
+        print("
+📊 Métricas da coluna vlr_transacao:"        print(f"   - Tipo: {col_metrics['data_type']}")
+        print(f"   - Total: {col_metrics['total_count']}")
+        print(f"   - NULL: {col_metrics['null_count']} ({col_metrics['null_percentage']:.2%})")
+        print(f"   - Valores extremos detectados: {len([c for c in quality_checker.results if 'extreme' in c.check_name])}")
+        print(f"   - Estatísticas: min={col_metrics['numeric_stats']['min']}, max={col_metrics['numeric_stats']['max']}, avg={col_metrics['numeric_stats']['avg']:.2f}")
+
+    # Salvar relatório em arquivo
+    report_path = quality_checker.save_detailed_report(df, "movimento")
+    print(f"\n💾 Relatório salvo em: {report_path}")
+
+    # Verificar se pipeline seria rejeitado
+    if quality_checker.should_reject_pipeline():
+        print("\n🚨 ATENÇÃO: Pipeline seria REJEITADO devido a falhas críticas!")
+        failed_checks = quality_checker.get_failed_checks()
+        for check in failed_checks:
+            print(f"   ❌ {check.check_name}: {check.message}")
+    else:
+        print("\n✅ Pipeline aprovado - todas as verificações críticas passaram!")
+
+    spark.stop()
+
+if __name__ == "__main__":
+    main()
+```
+
+### Saída Esperada do Exemplo
+
+```
+🔍 Executando verificações de qualidade...
+
+📊 Resultados das verificações (5 checks):
+✅ completeness_check: Todas as colunas obrigatórias presentes: 5 colunas
+⚠️ negative_check_vlr_transacao: Transações negativas em vlr_transacao: 20.00% > 0.00%
+✅ extreme_check_vlr_transacao: Valores extremos em vlr_transacao: abaixo de 0.01 (min: -200.00, max: 150.50)
+✅ volume_check_movimento: Volume estável em movimento: 0.00% <= 50.00%
+✅ duplicate_check: Duplicatas encontradas: 20.00% > 0.00% (colunas: ['id', 'id_cartao'])
+
+📈 Gerando relatório detalhado...
+
+📋 Resumo do relatório:
+   - Tabela: movimento
+   - Total de registros: 5
+   - Checks realizados: 5
+   - Status: 2✅ 2⚠️ 1❌
+
+📊 Métricas da coluna vlr_transacao:
+   - Tipo: bigint
+   - Total: 5
+   - NULL: 0 (0.00%)
+   - Valores extremos detectados: 1
+   - Estatísticas: min=-200.0, max=150.5, avg=53.14
+
+💾 Relatório salvo em: data_quality_report_movimento_1699123456.json
+
+⚠️ ATENÇÃO: Pipeline seria REJEITADO devido a falhas críticas!
+   ❌ completeness_check: Todas as colunas obrigatórias presentes: 5 colunas
+   ❌ duplicate_check: Duplicatas encontradas: 20.00% > 0.00% (colunas: ['id', 'id_cartao'])
+```
+
+Este exemplo demonstra como o sistema detecta automaticamente:
+- **Dados duplicados** (edge case forçado)
+- **Valores negativos** (transação inválida)
+- **Valores extremos** (fora dos limites esperados)
+- **Geração automática** de métricas e relatórios detalhados
