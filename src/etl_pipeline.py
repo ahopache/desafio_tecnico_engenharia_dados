@@ -2,11 +2,17 @@
 Pipeline ETL Principal
 Extrai dados do MySQL, transforma e gera CSV flat conforme especificação
 """
+import argparse
+import datetime
+import glob
+import json
+import locale
 import os
 import sys
+import tempfile
+import shutil
 import time
-import locale
-import argparse
+
 from typing import Tuple
 from pyspark.sql import SparkSession, DataFrame, functions as F
 from pyspark.sql.types import DecimalType, TimestampType
@@ -73,8 +79,6 @@ class SiCooperativeETL:
             message: Mensagem principal do log
             **kwargs: Campos adicionais para incluir no log estruturado
         """
-        import json
-        import datetime
 
         log_entry = {
             "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
@@ -275,6 +279,28 @@ class SiCooperativeETL:
         self.stats['quality_checks'] = quality_stats
 
         # Validar DataFrames
+        validate_dataframe(df_associado, "associado", min_rows=1)
+        validate_dataframe(df_conta, "conta", min_rows=1)
+        validate_dataframe(df_cartao, "cartao", min_rows=1)
+        validate_dataframe(df_movimento, "movimento", min_rows=1)
+
+        # Atualizar estatísticas
+        self.stats["registros_associado"] = df_associado.count()
+        self.stats["registros_conta"] = df_conta.count()
+        self.stats["registros_cartao"] = df_cartao.count()
+        self.stats["registros_movimento"] = df_movimento.count()
+
+    def extract_all_tables_incremental(self) -> Tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
+        """
+        Extrai todas as tabelas necessárias usando processamento incremental (Bronze Layer)
+
+        Returns:
+            Tuple: (df_associado, df_conta, df_cartao, df_movimento)
+        """
+        print_banner("ETAPA 1: EXTRAÇÃO INCREMENTAL (Bronze Layer)")
+
+        # Extrair tabelas incrementalmente
+        df_associado = self._extract_table_incremental("associado")
         df_conta = self._extract_table_incremental("conta")
         df_cartao = self._extract_table_incremental("cartao")
         df_movimento = self._extract_table_incremental("movimento")
@@ -337,16 +363,18 @@ class SiCooperativeETL:
         self.stats['quality_checks'] = quality_stats
 
         # Validar DataFrames
-        validate_dataframe(df_associado, "associado", min_rows=1)
-        validate_dataframe(df_conta, "conta", min_rows=1)
-        validate_dataframe(df_cartao, "cartao", min_rows=1)
-        validate_dataframe(df_movimento, "movimento", min_rows=1)
+        validate_dataframe(df_associado, "associado", min_rows=0)  # Pode ser 0 no modo incremental
+        validate_dataframe(df_conta, "conta", min_rows=0)
+        validate_dataframe(df_cartao, "cartao", min_rows=0)
+        validate_dataframe(df_movimento, "movimento", min_rows=0)
 
         # Atualizar estatísticas
         self.stats["registros_associado"] = df_associado.count()
         self.stats["registros_conta"] = df_conta.count()
         self.stats["registros_cartao"] = df_cartao.count()
         self.stats["registros_movimento"] = df_movimento.count()
+
+        return df_associado, df_conta, df_cartao, df_movimento
 
     def _extract_table_incremental(self, table_name: str) -> DataFrame:
         """
@@ -574,7 +602,7 @@ class SiCooperativeETL:
         except Exception as e:
             self.logger.warning(f"⚠️ Erro ao atualizar status do watermark: {str(e)}")
 
-    def transform_and_join(self):
+    def transform_and_join(self, df_associado, df_conta, df_cartao, df_movimento):
         print_banner("ETAPA 2: TRANSFORMAÇÃO (Silver Layer)")
         
         self.logger.info("Iniciando JOINs entre tabelas...")
@@ -719,6 +747,84 @@ class SiCooperativeETL:
             self.logger.error(f"✗ Erro nas transformações: {str(e)}")
             raise ETLException(f"Falha nas transformações: {str(e)}")
     
+    def _cleanup_temp_directory(self, pattern: str) -> None:
+        """
+        Remove arquivos temporários baseado no padrão
+
+        Args:
+            pattern: Padrão de arquivo a ser removido
+        """
+        try:
+            temp_files = glob.glob(pattern)
+            for temp_file in temp_files:
+                if os.path.exists(temp_file):
+                    if os.path.isdir(temp_file):
+                        shutil.rmtree(temp_file)
+                    else:
+                        os.remove(temp_file)
+                    self.logger.info(f"Arquivo temporário removido: {temp_file}")
+        except Exception as e:
+            self.logger.warning(f"Erro ao remover arquivos temporários {pattern}: {e}")
+
+    def _create_temp_output_directory(self, final_path: str) -> str:
+        """
+        Cria diretório temporário baseado no caminho final
+
+        Args:
+            final_path: Caminho do diretório final
+
+        Returns:
+            str: Caminho do diretório temporário criado
+        """
+        try:
+            # Criar diretório temporário único
+            temp_dir = tempfile.mkdtemp(suffix=Config.TEMP_DIR_SUFFIX, dir=os.path.dirname(final_path))
+
+            self.logger.info(f"📁 Diretório temporário criado: {temp_dir}")
+            return temp_dir
+
+        except Exception as e:
+            self.logger.error(f"✗ Erro ao criar diretório temporário: {str(e)}")
+            raise ETLException(f"Falha ao criar diretório temporário: {str(e)}")
+
+    def _atomic_write_with_cleanup(self, df: DataFrame, temp_path: str, final_path: str, format_type: str) -> None:
+        """
+        Escreve dados atomicamente com cleanup automático
+
+        Args:
+            df: DataFrame a ser salvo
+            temp_path: Caminho temporário para escrita inicial
+            final_path: Caminho final para atomic move
+            format_type: Tipo de formato ('csv' ou 'parquet')
+        """
+        try:
+            # Escrever para diretório temporário
+            if format_type == "csv":
+                df.write \
+                    .mode("overwrite") \
+                    .option("header", "true") \
+                    .option("encoding", "UTF-8") \
+                    .csv(temp_path)
+            elif format_type == "parquet":
+                df.write \
+                    .mode("overwrite") \
+                    .parquet(temp_path)
+
+            # Atomic move: renomear diretório temporário para final
+            if os.path.exists(final_path):
+                shutil.rmtree(final_path)
+
+            os.rename(temp_path, final_path)
+
+            self.logger.info(f"✅ Arquivo {format_type} escrito atomicamente: {final_path}")
+
+        except Exception as e:
+            # Cleanup em caso de erro
+            if os.path.exists(temp_path):
+                shutil.rmtree(temp_path)
+            self.logger.error(f"✗ Erro na escrita atômica {format_type}: {str(e)}")
+            raise ETLException(f"Falha na escrita atômica {format_type}: {str(e)}")
+
     def load_to_csv_atomic(self, df: DataFrame) -> dict:
         """
         Carrega dados para CSV usando atomic write pattern com processamento incremental

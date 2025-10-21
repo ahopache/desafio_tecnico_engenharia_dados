@@ -178,6 +178,15 @@ class DataQualityChecker:
         # Atualizar historico
         self._save_historical_data(table_name, current_count)
 
+        return QualityCheckResult(
+            check_name=f"volume_check_{table_name}",
+            status=status,
+            value=change_percentage,
+            threshold=tolerance,
+            message=message,
+            timestamp=time.time()
+        )
+
     def check_duplicate_records(self, df: DataFrame, columns: List[str], threshold: float = 0.0) -> QualityCheckResult:
         """
         Verifica duplicatas em colunas especificas

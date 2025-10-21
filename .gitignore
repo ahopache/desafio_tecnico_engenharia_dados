@@ -85,7 +85,7 @@ output/
 # Configurações Sensíveis
 # ----------------------------------------------------------------------------
 .env
-.env.*
+# .env.*
 *.pem
 *.key
 *.crt
@@ -112,8 +112,8 @@ id_rsa
 
 # Arquivos de configuração com senhas
 *.conf
-*.ini
+# *.ini
 *.yaml
-*.yml
+# *.yml
 !requirements.txt
 !desafio.txt
