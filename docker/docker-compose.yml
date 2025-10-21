@@ -27,16 +27,6 @@ services:
           memory: 512M
           cpus: '0.5'
 
-    # Recursos limitados para otimizacao
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-
     # Otimizacoes de performance MySQL
     environment:
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
@@ -59,15 +49,6 @@ services:
     networks:
       - sicooperative-network
 
-    # Healthcheck robusto para MySQL
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=$(cat /run/secrets/mysql_root_password)"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-      disable: false
-
     # Comando otimizado para performance
     command: >
       --character-set-server=utf8mb4
@@ -83,51 +64,12 @@ services:
       - mysql_root_password
       - mysql_password
 
-    # Recursos limitados para otimizacao
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-
-    environment:
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-sicooperative_db}
-      MYSQL_USER: ${MYSQL_USER:-etl_user}
-      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
-      TZ: America/Sao_Paulo
-
-    ports:
-      - "${MYSQL_PORT:-3306}:3306"
-
-    volumes:
-      # Scripts SQL executados automaticamente na inicialização
-      - ../sql:/docker-entrypoint-initdb.d:ro
-      # Persistência de dados
-      - mysql_data:/var/lib/mysql
-
-    networks:
-      - sicooperative-network
-
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=$$(cat /run/secrets/mysql_root_password)"]
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 60s
-
-    command: >
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --default-authentication-plugin=mysql_native_password
-      --max_connections=200
-
-    secrets:
-      - mysql_root_password
-      - mysql_password
+      start_period: 180s
 
   # ==========================================================================
   # SERVIÇO: Spark (PySpark)
@@ -143,16 +85,6 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '1.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
-
-    # Recursos limitados para otimizacao
-    deploy:
-      resources:
-        limits:
           memory: 512M
           cpus: '0.5'
         reservations:
@@ -181,15 +113,6 @@ services:
     networks:
       - sicooperative-network
 
-    # Healthcheck robusto para MySQL
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=$(cat /run/secrets/mysql_root_password)"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-      disable: false
-
     # Comando otimizado para performance
     command: >
       --character-set-server=utf8mb4
@@ -205,24 +128,6 @@ services:
       - mysql_root_password
       - mysql_password
 
-    # Recursos limitados para otimizacao
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    
-    environment:
-      # Configurações MySQL
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-sicooperative_db}
-      MYSQL_USER: ${MYSQL_USER:-root}
-      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
-      
       # Configurações Spark
       SPARK_APP_NAME: SiCooperative-ETL
       SPARK_MASTER: local[*]
@@ -263,7 +168,7 @@ services:
       interval: 30s
       timeout: 15s
       retries: 5
-      start_period: 120s
+      start_period: 180s
     
   # ==========================================================================
   # SERVIÇO: Ambiente de Teste
