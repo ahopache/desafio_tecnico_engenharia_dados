@@ -17,6 +17,82 @@ services:
     container_name: sicooperative-mysql
     restart: unless-stopped
 
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+    # Otimizacoes de performance MySQL
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sicooperative_db}
+      MYSQL_USER: ${MYSQL_USER:-etl_user}
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
+      TZ: America/Sao_Paulo
+      # Otimizacoes MySQL para performance
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+
+    volumes:
+      # Scripts SQL executados automaticamente na inicializacao
+      - ../sql:/docker-entrypoint-initdb.d:ro
+      # Persistencia de dados
+      - mysql_data:/var/lib/mysql
+
+    networks:
+      - sicooperative-network
+
+    # Healthcheck robusto para MySQL
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=$(cat /run/secrets/mysql_root_password)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+      disable: false
+
+    # Comando otimizado para performance
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max_connections=200
+      --innodb_buffer_pool_size=256M
+      --innodb_log_file_size=64M
+      --query_cache_size=0
+      --query_cache_type=0
+
+    secrets:
+      - mysql_root_password
+      - mysql_password
+
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
     environment:
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
       MYSQL_DATABASE: ${MYSQL_DATABASE:-sicooperative_db}
@@ -62,6 +138,82 @@ services:
       dockerfile: Dockerfile
     container_name: sicooperative-spark
     restart: unless-stopped
+
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+    # Otimizacoes de performance MySQL
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sicooperative_db}
+      MYSQL_USER: ${MYSQL_USER:-etl_user}
+      MYSQL_PASSWORD_FILE: /run/secrets/mysql_password
+      TZ: America/Sao_Paulo
+      # Otimizacoes MySQL para performance
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+
+    volumes:
+      # Scripts SQL executados automaticamente na inicializacao
+      - ../sql:/docker-entrypoint-initdb.d:ro
+      # Persistencia de dados
+      - mysql_data:/var/lib/mysql
+
+    networks:
+      - sicooperative-network
+
+    # Healthcheck robusto para MySQL
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=$(cat /run/secrets/mysql_root_password)"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+      disable: false
+
+    # Comando otimizado para performance
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max_connections=200
+      --innodb_buffer_pool_size=256M
+      --innodb_log_file_size=64M
+      --query_cache_size=0
+      --query_cache_type=0
+
+    secrets:
+      - mysql_root_password
+      - mysql_password
+
+    # Recursos limitados para otimizacao
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
     
     environment:
       # Configurações MySQL
@@ -121,7 +273,14 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.test
     container_name: sicooperative-test
-    restart: "no"  # Não reiniciar automaticamente
+    restart: "no"
+
+    # Recursos para testes
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'  # Não reiniciar automaticamente
 
     environment:
       # Configurações MySQL (teste)
@@ -188,3 +347,6 @@ volumes:
   mysql_data:
     name: sicooperative-mysql-data
     driver: local
+
+
+
