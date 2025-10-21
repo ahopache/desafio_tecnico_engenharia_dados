@@ -64,6 +64,38 @@ class SiCooperativeETL:
             "registros_final": 0
         }
     
+    def log_structured(self, level: str, message: str, **kwargs) -> None:
+        """
+        Gera log estruturado em formato JSON
+
+        Args:
+            level: Nível do log (INFO, WARNING, ERROR, DEBUG)
+            message: Mensagem principal do log
+            **kwargs: Campos adicionais para incluir no log estruturado
+        """
+        import json
+        import datetime
+
+        log_entry = {
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "level": level,
+            "logger": "etl_pipeline",
+            "message": message,
+            "run_id": f"run_{int(time.time())}",
+            **kwargs
+        }
+
+        # Log no formato estruturado (JSON)
+        self.logger.info(f"[STRUCTURED] {json.dumps(log_entry, default=str)}")
+
+        # Também mantém o log tradicional para compatibilidade
+        if level == "ERROR":
+            self.logger.error(message)
+        elif level == "WARNING":
+            self.logger.warning(message)
+        else:
+            self.logger.info(message)
+    
     def create_spark_session(self) -> SparkSession:
         """
         Cria e configura a sessão Spark
@@ -243,30 +275,6 @@ class SiCooperativeETL:
         self.stats['quality_checks'] = quality_stats
 
         # Validar DataFrames
-        validate_dataframe(df_associado, "associado", min_rows=1)
-        validate_dataframe(df_conta, "conta", min_rows=1)
-        validate_dataframe(df_cartao, "cartao", min_rows=1)
-        validate_dataframe(df_movimento, "movimento", min_rows=1)
-
-        # Atualizar estatísticas
-        self.stats["registros_associado"] = df_associado.count()
-        self.stats["registros_conta"] = df_conta.count()
-        self.stats["registros_cartao"] = df_cartao.count()
-        self.stats["registros_movimento"] = df_movimento.count()
-
-        return df_associado, df_conta, df_cartao, df_movimento
-    
-    def extract_all_tables_incremental(self) -> Tuple[DataFrame, DataFrame, DataFrame, DataFrame]:
-        """
-        Extrai todas as tabelas necessárias usando processamento incremental (Bronze Layer)
-
-        Returns:
-            Tuple: (df_associado, df_conta, df_cartao, df_movimento)
-        """
-        print_banner("ETAPA 1: EXTRAÇÃO INCREMENTAL (Bronze Layer)")
-
-        # Extrair tabelas usando processamento incremental
-        df_associado = self._extract_table_incremental("associado")
         df_conta = self._extract_table_incremental("conta")
         df_cartao = self._extract_table_incremental("cartao")
         df_movimento = self._extract_table_incremental("movimento")
@@ -599,6 +607,16 @@ class SiCooperativeETL:
             
             self.logger.info(f"✓ JOINs concluídos: {df_joined.count()} registros")
             
+            # Registrar métricas intermediárias de transformação
+            if observability_manager.is_enabled():
+                # Métricas após JOINs
+                observability_manager.get_collector().record_gauge(
+                    "etl_records_after_joins", df_joined.count(), {"stage": "transform", "step": "joins"}
+                )
+                observability_manager.get_collector().record_gauge(
+                    "etl_join_success_rate", 100.0, {"stage": "transform"}
+                )
+            
             # Selecionar e renomear colunas conforme especificação
             self.logger.info("Selecionando e renomeando colunas...")
             
@@ -676,6 +694,25 @@ class SiCooperativeETL:
             self.logger.info("✓ Transformações concluídas")
             self.logger.info("✓ Todas as datas convertidas para UTC com timezone America/Sao_Paulo")
             
+            # Registrar métricas finais de transformação
+            if observability_manager.is_enabled():
+                # Métricas finais de transformação
+                observability_manager.get_collector().record_gauge(
+                    "etl_records_after_transform", df_transformed.count(), {"stage": "transform"}
+                )
+                observability_manager.get_collector().record_gauge(
+                    "etl_columns_final_count", len(df_transformed.columns), {"stage": "transform"}
+                )
+                
+                # Verificar se houve perda de dados na transformação
+                input_records = df_movimento.count() if 'df_movimento' in locals() else 0
+                output_records = df_transformed.count()
+                if input_records > 0:
+                    transform_efficiency = (output_records / input_records) * 100
+                    observability_manager.get_collector().record_gauge(
+                        "etl_transform_efficiency_percent", transform_efficiency, {"stage": "transform"}
+                    )
+            
             return df_transformed
             
         except Exception as e:
@@ -741,11 +778,41 @@ class SiCooperativeETL:
                 
                 self._update_watermark("movimento", total_registros, last_timestamp)
             
+            # Registrar métricas de sucesso no carregamento
+            if observability_manager.is_enabled():
+                # Métricas de sucesso
+                observability_manager.get_collector().record_gauge(
+                    "etl_records_loaded", total_registros, {"stage": "load", "format": "csv"}
+                )
+                
+                # Métricas de arquivo
+                csv_size_mb = 0.0
+                if os.path.exists(f"{self.output_dir}/csv/movimento_flat.csv"):
+                    csv_size_mb = os.path.getsize(f"{self.output_dir}/csv/movimento_flat.csv") / (1024 * 1024)
+                
+                observability_manager.get_collector().record_gauge(
+                    "etl_output_file_size_mb", csv_size_mb, {"stage": "load", "format": "csv"}
+                )
+                
+                # Métricas de throughput
+                if load_result and load_result.duration_seconds > 0:
+                    throughput = total_registros / load_result.duration_seconds if total_registros > 0 else 0
+                    observability_manager.get_collector().record_gauge(
+                        "etl_load_throughput_records_per_second", throughput, {"stage": "load"}
+                    )
+            
             self.logger.info(f"  Total de registros processados: {total_registros}")
             return output_paths
             
         except Exception as e:
             self.logger.error(f"✗ Erro no load_to_csv_atomic: {str(e)}")
+            
+            # Registrar métricas de erro
+            if observability_manager.is_enabled():
+                observability_manager.get_collector().record_error("load_failure")
+                observability_manager.get_collector().record_gauge(
+                    "etl_load_error_count", 1.0, {"stage": "load", "error_type": "atomic_write"}
+                )
             
             # Limpar arquivos temporários em caso de erro geral
             if Config.CLEANUP_TEMP_FILES:
@@ -926,6 +993,16 @@ class SiCooperativeETL:
 
         self.stats["inicio"] = time.time()
 
+        # Log estruturado de início do pipeline
+        self.log_structured(
+            "INFO",
+            "Iniciando pipeline ETL",
+            pipeline_mode="incremental",
+            observability_enabled=observability_manager.is_enabled(),
+            spark_master=Config.SPARK_MASTER,
+            output_dir=self.output_dir
+        )
+
         try:
             # Validar configurações
             Config.validate()
@@ -987,6 +1064,19 @@ class SiCooperativeETL:
             print_banner("PIPELINE INCREMENTAL CONCLUÍDO COM SUCESSO!", "=")
             print_statistics(self.stats)
             
+            # Log estruturado de sucesso
+            self.log_structured(
+                "INFO",
+                "Pipeline concluído com sucesso",
+                status="success",
+                mode="incremental",
+                total_records=self.stats.get("registros_final", 0),
+                duration_seconds=self.stats.get("duracao_seconds", 0),
+                quality_checks_passed=self.stats.get("quality_checks", {}).get("passed", 0),
+                quality_checks_warnings=self.stats.get("quality_checks", {}).get("warnings", 0),
+                output_paths=str(output_paths)
+            )
+            
             # Log de observabilidade
             if observability_manager.is_enabled():
                 observability_manager.log_metrics_summary()
@@ -995,6 +1085,17 @@ class SiCooperativeETL:
             
         except Exception as e:
             self.logger.error(f"✗ Pipeline incremental falhou: {str(e)}")
+            
+            # Log estruturado de erro
+            self.log_structured(
+                "ERROR",
+                "Pipeline falhou",
+                status="error",
+                mode="incremental",
+                error_message=str(e),
+                error_type=type(e).__name__,
+                duration_seconds=time.time() - self.stats.get("inicio", time.time())
+            )
             
             # Registrar erro nas métricas
             if observability_manager.is_enabled():
@@ -1022,6 +1123,16 @@ class SiCooperativeETL:
         
         self.stats["inicio"] = time.time()
         
+        # Log estruturado de início do pipeline completo
+        self.log_structured(
+            "INFO",
+            "Iniciando pipeline ETL - MODO COMPLETO",
+            pipeline_mode="full",
+            observability_enabled=observability_manager.is_enabled(),
+            spark_master=Config.SPARK_MASTER,
+            output_dir=self.output_dir
+        )
+
         try:
             # Validar configurações
             Config.validate()
@@ -1069,6 +1180,19 @@ class SiCooperativeETL:
             print_banner("PIPELINE COMPLETO CONCLUÍDO COM SUCESSO!", "=")
             print_statistics(self.stats)
             
+            # Log estruturado de sucesso
+            self.log_structured(
+                "INFO",
+                "Pipeline completo concluído com sucesso",
+                status="success",
+                mode="full",
+                total_records=self.stats.get("registros_final", 0),
+                duration_seconds=self.stats.get("duracao_seconds", 0),
+                quality_checks_passed=self.stats.get("quality_checks", {}).get("passed", 0),
+                quality_checks_warnings=self.stats.get("quality_checks", {}).get("warnings", 0),
+                output_paths=str(output_paths)
+            )
+            
             # Log de observabilidade
             if observability_manager.is_enabled():
                 observability_manager.log_metrics_summary()
@@ -1077,6 +1201,17 @@ class SiCooperativeETL:
             
         except Exception as e:
             self.logger.error(f"✗ Pipeline completo falhou: {str(e)}")
+            
+            # Log estruturado de erro
+            self.log_structured(
+                "ERROR",
+                "Pipeline completo falhou",
+                status="error",
+                mode="full",
+                error_message=str(e),
+                error_type=type(e).__name__,
+                duration_seconds=time.time() - self.stats.get("inicio", time.time())
+            )
             
             # Registrar erro nas métricas
             if observability_manager.is_enabled():

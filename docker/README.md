@@ -123,115 +123,6 @@ docker-compose up -d --build
 
 ## 🏗️ Arquitetura
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    DOCKER COMPOSE                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────┐         ┌─────────────────────┐    │
-│  │   MySQL Container   │         │   Spark Container   │    │
-│  ├─────────────────────┤         ├─────────────────────┤    │
-│  │ - MySQL 8.0         │◄────────┤ - Python 3.10       │    │
-│  │ - Port 3306         │  JDBC   │ - PySpark 3.5       │    │
-│  │ - Auto-init SQL     │         │ - Java 17           │    │
-│  │ - Volume: mysql_data│         │ - MySQL Connector   │    │
-│  └─────────────────────┘         └─────────────────────┘    │
-│           │                                │                │
-│           │                                │                │
-│           ▼                                ▼                │
-│  ┌─────────────────────┐         ┌─────────────────────┐    │
-│  │  Volume: mysql_data │         │  Volume: output/    │    │
-│  │  (Persistência)     │         │  (CSV gerado)       │    │
-│  └─────────────────────┘         └─────────────────────┘    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## 🔐 Segurança e Credenciais
-
-### Configuração Segura
-
-**IMPORTANTE**: Este ambiente usa Docker Secrets para proteger credenciais sensíveis.
-
-#### 1. Criar Arquivos de Secrets
-
-Antes de executar o ambiente, crie os arquivos de secrets:
-
-```bash
-# Navegar para o diretório docker
-cd docker
-
-# Criar diretório de secrets
-mkdir -p secrets
-
-# Gerar senhas seguras (use openssl ou pwgen)
-echo "sua_senha_mysql_segura_aqui" > secrets/mysql_root_password
-echo "sua_senha_usuario_segura_aqui" > secrets/mysql_password
-
-# Definir permissões restritivas
-chmod 600 secrets/mysql_root_password secrets/mysql_password
-```
-
-#### 2. Configurar Variáveis de Ambiente
-
-Crie um arquivo `.env` baseado no `.env.example`:
-
-```bash
-# Copiar template
-cp ../.env.example ../.env
-
-# Editar .env com suas configurações
-nano ../.env
-```
-
-#### 3. Configurações Padrão (Ambiente de Desenvolvimento)
-
-**MySQL:**
-- Host: `localhost` (ou `mysql` dentro da rede Docker)
-- Port: `3306`
-- Database: `sicooperative_db`
-- Root User: Definido em `secrets/mysql_root_password`
-- App User: Definido em `secrets/mysql_password`
-
-⚠️ **IMPORTANTE**: Estas são configurações de desenvolvimento. **NUNCA** use em produção!
-
-### Arquivos de Secrets
-
-O sistema utiliza Docker Secrets para proteger credenciais:
-
-- `secrets/mysql_root_password`: Senha do usuário root do MySQL
-- `secrets/mysql_password`: Senha do usuário da aplicação
-
-**Para desenvolvimento local:**
-```bash
-# Criar secrets para desenvolvimento
-echo "root_password" > secrets/mysql_root_password
-echo "etl_password" > secrets/mysql_password
-```
-
-**Para produção:**
-- Use sistemas de gerenciamento de segredos (Vault, AWS Secrets Manager, etc.)
-- Gere senhas fortes e únicas
-- Monitore acessos e alterações
-
-## 📊 Volumes
-
-### `mysql_data`
-- **Propósito**: Persistir dados do MySQL
-- **Localização**: Gerenciado pelo Docker
-- **Backup**: `docker run --rm -v sicooperative-mysql-data:/data -v $(pwd):/backup ubuntu tar czf /backup/mysql-backup.tar.gz /data`
-
-### `../output`
-- **Propósito**: Armazenar CSV gerado
-- **Localização**: `output/` no diretório raiz do projeto
-- **Acesso**: Diretamente no host
-
-## 🌐 Networking
-
-- **Rede**: `sicooperative-network` (bridge)
-- **Comunicação**: Containers se comunicam via nomes de serviço
-- **Isolamento**: Rede isolada do host (exceto portas expostas)
-
 ## 🐛 Troubleshooting
 
 ### Problema: MySQL não inicia
@@ -280,12 +171,62 @@ print(df.count())
 
 ### Problema: Permissões no Windows
 
-```bash
+```powershell
 # Executar PowerShell como Administrador
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 # Ou usar Docker Desktop com WSL2
 ```
+
+## 📚 Recursos Adicionais
+
+- [Docker Secrets Documentation](https://docs.docker.com/engine/swarm/secrets/)
+- [MySQL Security Best Practices](https://dev.mysql.com/doc/refman/8.0/en/security.html)
+- [Password Security Guidelines](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+
+## 🏗️ Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DOCKER COMPOSE                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────┐         ┌─────────────────────┐    │
+│  │   MySQL Container   │         │   Spark Container   │    │
+│  ├─────────────────────┤         ├─────────────────────┤    │
+│  │ - MySQL 8.0         │◄────────┤ - Python 3.10       │    │
+│  │ - Port 3306         │  JDBC   │ - PySpark 3.5       │    │
+│  │ - Auto-init SQL     │         │ - Java 17           │    │
+│  │ - Volume: mysql_data│         │ - MySQL Connector   │    │
+│  └─────────────────────┘         └─────────────────────┘    │
+│           │                                │                │
+│           │                                │                │
+│           ▼                                ▼                │
+│  ┌─────────────────────┐         ┌─────────────────────┐    │
+│  │  Volume: mysql_data │         │  Volume: output/    │    │
+│  │  (Persistência)     │         │  (CSV gerado)       │    │
+│  └─────────────────────┘         └─────────────────────┘    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 📊 Volumes
+
+### `mysql_data`
+- **Propósito**: Persistir dados do MySQL
+- **Localização**: Gerenciado pelo Docker
+- **Backup**: `docker run --rm -v sicooperative-mysql-data:/data -v $(pwd):/backup ubuntu tar czf /backup/mysql-backup.tar.gz /data`
+
+### `../output`
+- **Propósito**: Armazenar CSV gerado
+- **Localização**: `output/` no diretório raiz do projeto
+- **Acesso**: Diretamente no host
+
+## 🌐 Networking
+
+- **Rede**: `sicooperative-network` (bridge)
+- **Comunicação**: Containers se comunicam via nomes de serviço
+- **Isolamento**: Rede isolada do host (exceto portas expostas)
 
 ## 📝 Notas
 
@@ -294,28 +235,248 @@ Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Performance**: Ajuste memória do Spark em `docker-compose.yml` conforme necessário
 - **Produção**: Este setup é para desenvolvimento/demonstração. Para produção, use secrets, SSL, etc.
 
-## 🔄 Workflow Completo
+## 📊 Observabilidade e Métricas
+
+### Logs Estruturados (JSON)
+
+O pipeline gera logs estruturados em formato JSON para facilitar monitoramento e análise:
+
+#### Exemplo de Log de Início do Pipeline:
+```json
+{
+  "timestamp": "2024-01-15T14:30:25.123Z",
+  "level": "INFO",
+  "logger": "etl_pipeline",
+  "message": "Iniciando pipeline ETL - MODO INCREMENTAL",
+  "pipeline_mode": "incremental",
+  "spark_app_name": "SiCooperative-ETL",
+  "run_id": "run_20240115_143025"
+}
+```
+
+#### Exemplo de Log de Extração de Dados:
+```json
+{
+  "timestamp": "2024-01-15T14:30:26.456Z",
+  "level": "INFO",
+  "logger": "etl_pipeline",
+  "message": "Tabela 'movimento' extraída: 15432 registros",
+  "table": "movimento",
+  "records_count": 15432,
+  "extraction_time_seconds": 2.34,
+  "partitioning_used": true,
+  "partition_column": "id",
+  "num_partitions": 8
+}
+```
+
+#### Exemplo de Log de Transformação:
+```json
+{
+  "timestamp": "2024-01-15T14:30:28.789Z",
+  "level": "INFO",
+  "logger": "etl_pipeline",
+  "message": "JOINs concluídos: 15432 registros",
+  "stage": "transform",
+  "input_records": 15432,
+  "output_records": 15432,
+  "joins_performed": 3,
+  "transform_time_seconds": 1.12
+}
+```
+
+#### Exemplo de Log de Carregamento:
+```json
+{
+  "timestamp": "2024-01-15T14:30:30.012Z",
+  "level": "INFO",
+  "logger": "etl_pipeline",
+  "message": "CSV gerado com sucesso",
+  "stage": "load",
+  "output_format": "csv",
+  "output_path": "/app/output/csv/movimento_flat.csv",
+  "records_written": 15432,
+  "file_size_mb": 4.2,
+  "load_time_seconds": 1.45
+}
+```
+
+#### Exemplo de Log de Qualidade de Dados:
+```json
+{
+  "timestamp": "2024-01-15T14:30:27.345Z",
+  "level": "WARNING",
+  "logger": "data_quality",
+  "message": "Aviso de qualidade detectado",
+  "check_name": "null_check_cartao",
+  "status": "WARNING",
+  "null_percentage": 0.02,
+  "threshold": 0.01,
+  "affected_records": 3,
+  "total_records": 15432
+}
+```
+
+### Métricas Coletadas
+
+O sistema coleta métricas detalhadas por etapa:
+
+#### Métricas de Performance:
+```json
+{
+  "etl_stage_duration_seconds": {
+    "stage": "extract",
+    "value": 2.34,
+    "timestamp": "2024-01-15T14:30:26.456Z"
+  },
+  "etl_stage_duration_seconds": {
+    "stage": "transform",
+    "value": 1.12,
+    "timestamp": "2024-01-15T14:30:28.789Z"
+  },
+  "etl_stage_duration_seconds": {
+    "stage": "load",
+    "value": 1.45,
+    "timestamp": "2024-01-15T14:30:30.012Z"
+  }
+}
+```
+
+#### Métricas de Volume:
+```json
+{
+  "etl_records_input": {
+    "stage": "extract",
+    "table": "movimento",
+    "value": 15432,
+    "timestamp": "2024-01-15T14:30:26.456Z"
+  },
+  "etl_records_output": {
+    "stage": "transform",
+    "value": 15432,
+    "timestamp": "2024-01-15T14:30:28.789Z"
+  }
+}
+```
+
+#### Métricas de Qualidade:
+```json
+{
+  "etl_quality_checks_total": {
+    "stage": "extract",
+    "value": 12,
+    "timestamp": "2024-01-15T14:30:27.345Z"
+  },
+  "etl_quality_checks_failed": {
+    "stage": "extract",
+    "value": 0,
+    "timestamp": "2024-01-15T14:30:27.345Z"
+  },
+  "etl_quality_checks_warnings": {
+    "stage": "extract",
+    "value": 1,
+    "timestamp": "2024-01-15T14:30:27.345Z"
+  }
+}
+```
+
+#### Métricas de Performance por Tabela:
+```json
+{
+  "etl_records_by_table": {
+    "table": "movimento",
+    "stage": "extract",
+    "value": 15432,
+    "timestamp": "2024-01-15T14:30:26.456Z"
+  },
+  "etl_quality_checks_by_table": {
+    "table": "movimento",
+    "stage": "extract",
+    "value": 12,
+    "timestamp": "2024-01-15T14:30:27.345Z"
+  }
+}
+```
+
+#### Métricas de Eficiência:
+```json
+{
+  "etl_quality_success_rate_percent": {
+    "stage": "extract",
+    "value": 91.67,
+    "timestamp": "2024-01-15T14:30:27.345Z"
+  },
+  "etl_transform_efficiency_percent": {
+    "stage": "transform",
+    "value": 100.0,
+    "timestamp": "2024-01-15T14:30:28.789Z"
+  }
+}
+```
+
+#### Métricas de Throughput:
+```json
+{
+  "etl_load_throughput_records_per_second": {
+    "stage": "load",
+    "value": 1064.27,
+    "timestamp": "2024-01-15T14:30:30.012Z"
+  }
+}
+```
+
+#### Métricas de Arquivo:
+```json
+{
+  "etl_output_file_size_mb": {
+    "stage": "load",
+    "format": "csv",
+    "value": 4.2,
+    "timestamp": "2024-01-15T14:30:30.012Z"
+  }
+}
+```
+
+### Monitoramento Externo
+
+As métricas podem ser integradas com sistemas externos:
+
+#### Prometheus:
+- Métricas exportadas em formato Prometheus
+- Dashboards no Grafana
+- Alertas automáticos
+
+#### ELK Stack:
+- Logs estruturados enviados para Elasticsearch
+- Dashboards no Kibana
+- Análise de tendências
+
+#### Cloud Monitoring:
+- Integração com AWS CloudWatch, Azure Monitor, Google Cloud Monitoring
+- Métricas customizadas por ambiente
 
 ```bash
-# 1. Subir ambiente
+# 1. Configurar secrets (conforme instruções acima)
 cd docker
+./setup_secrets.sh dev  # Linux/Mac
+# Ou configure manualmente no Windows
+
+# 2. Subir ambiente
 docker-compose up -d
 
-# 2. Aguardar MySQL (automático via healthcheck)
+# 3. Aguardar MySQL (automático via healthcheck)
 docker-compose ps
 
-# 3. Executar pipeline
+# 4. Executar pipeline
 ./run-pipeline.sh  # ou run-pipeline.bat no Windows
 
-# 4. Verificar resultado
+# 5. Verificar resultado
 head ../output/movimento_flat.csv
 
-# 5. Parar ambiente
+# 6. Parar ambiente
 docker-compose down
 ```
 
 ## 📚 Referências
-
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [MySQL Docker Image](https://hub.docker.com/_/mysql)
 - [PySpark Documentation](https://spark.apache.org/docs/latest/api/python/)
