@@ -371,10 +371,15 @@ class SiCooperativeETL:
             }
 
             # Adicionar opções de particionamento se aplicável
-            partition_options = Config.get_jdbc_partition_options(table_name)
+            partition_options = Config.get_jdbc_partition_options(table_name, self.spark)
             if partition_options:
                 jdbc_options.update(partition_options)
-                self.logger.info(f"✓ Usando particionamento JDBC para tabela '{table_name}': {partition_options}")
+                self.logger.info(f"✓ Usando particionamento JDBC otimizado para tabela '{table_name}':")
+                self.logger.info(f"  - Coluna: {partition_options['partitionColumn']}")
+                self.logger.info(f"  - Range: {partition_options['lowerBound']} a {partition_options['upperBound']}")
+                self.logger.info(f"  - Partições: {partition_options['numPartitions']}")
+            else:
+                self.logger.info(f"⚠️ Sem particionamento JDBC para tabela '{table_name}' (tabela pequena ou sem dados)")
 
             # Construir o DataFrame com as opções apropriadas
             df = self.spark.read \

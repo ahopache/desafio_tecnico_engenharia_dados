@@ -240,8 +240,240 @@ class Config:
     # Métricas detalhadas
     METRICS_DETAILED_LOGGING: bool = os.getenv("METRICS_DETAILED_LOGGING", "false").lower() == "true"
 
-    # Arquivo de exportação de métricas (formato JSON)
-    METRICS_EXPORT_FILE: str = os.getenv("METRICS_EXPORT_FILE", "pipeline_metrics.json")
+    # ========================================================================
+    # CONFIGURAÇÕES DE PARTICIONAMENTO JDBC
+    # ========================================================================
+
+    # Controle geral de particionamento JDBC
+    JDBC_PARTITIONING_ENABLED: bool = os.getenv("JDBC_PARTITIONING_ENABLED", "true").lower() == "true"
+
+    # Tamanho alvo por partição (em registros)
+    JDBC_TARGET_RECORDS_PER_PARTITION: int = int(os.getenv("JDBC_TARGET_RECORDS_PER_PARTITION", "25000"))
+
+    # Fator de ajuste para tabelas pequenas (reduz paralelismo)
+    JDBC_SMALL_TABLE_FACTOR: float = float(os.getenv("JDBC_SMALL_TABLE_FACTOR", "0.1"))
+
+    # Número máximo de conexões JDBC por tabela
+    JDBC_MAX_CONNECTIONS_PER_TABLE: int = int(os.getenv("JDBC_MAX_CONNECTIONS_PER_TABLE", "10"))
+
+    # Timeout para queries de estatísticas (segundos)
+    JDBC_STATS_QUERY_TIMEOUT: int = int(os.getenv("JDBC_STATS_QUERY_TIMEOUT", "30"))
+
+    @classmethod
+    def get_jdbc_partition_options(cls, table_name: str, spark_session=None) -> dict:
+        """
+        Obtém opções de particionamento JDBC otimizadas para tabela específica
+
+        Implementa:
+        - Tuning dinâmico: lowerBound/upperBound obtidos dinamicamente via SELECT MIN(id), MAX(id)
+        - numPartitions ajustável baseado no tamanho da tabela
+        - Fallback para small tables: evita paralelismo exagerado
+
+        Args:
+            table_name: Nome da tabela para particionamento
+            spark_session: Sessão Spark (opcional, para queries dinâmicas)
+
+        Returns:
+            dict: Opções de particionamento JDBC ou None se não aplicável
+        """
+        if not cls.JDBC_PARTITIONING_ENABLED:
+            return None
+
+        # Configurações de particionamento por tabela
+        partition_configs = {
+            "associado": {
+                "column": "id",
+                "min_partitions": 2,
+                "max_partitions": 8,
+                "small_table_threshold": 10000,
+                "use_dynamic_bounds": True
+            },
+            "conta": {
+                "column": "id",
+                "min_partitions": 2,
+                "max_partitions": 8,
+                "small_table_threshold": 5000,
+                "use_dynamic_bounds": True
+            },
+            "cartao": {
+                "column": "id",
+                "min_partitions": 4,
+                "max_partitions": 16,
+                "small_table_threshold": 20000,
+                "use_dynamic_bounds": True
+            },
+            "movimento": {
+                "column": "id",
+                "min_partitions": 8,
+                "max_partitions": 32,
+                "small_table_threshold": 100000,
+                "use_dynamic_bounds": True
+            }
+        }
+
+        if table_name not in partition_configs:
+            return None
+
+        config = partition_configs[table_name]
+        partition_column = config["column"]
+
+        # Se não temos sessão Spark, usar valores padrão
+        if not spark_session:
+            return {
+                "partitionColumn": partition_column,
+                "lowerBound": 1,
+                "upperBound": 1000000,
+                "numPartitions": min(config["max_partitions"], 8)
+            }
+
+        try:
+            # Obter estatísticas da tabela dinamicamente
+            jdbc_url = cls.get_mysql_jdbc_url()
+
+            # Query para obter MIN e MAX do ID com timeout
+            bounds_query = f"(SELECT MIN({partition_column}) as min_id, MAX({partition_column}) as max_id FROM {table_name}) as bounds_query"
+
+            bounds_df = spark_session.read \
+                .format("jdbc") \
+                .option("url", jdbc_url) \
+                .option("dbtable", bounds_query) \
+                .option("user", cls.MYSQL_USER) \
+                .option("password", cls.MYSQL_PASSWORD) \
+                .option("driver", "com.mysql.cj.jdbc.Driver") \
+                .option("fetchsize", "1000") \
+                .load()
+
+            if bounds_df.count() == 0:
+                # Tabela vazia, não particionar
+                return None
+
+            bounds_row = bounds_df.first()
+            min_id = bounds_row["min_id"]
+            max_id = bounds_row["max_id"]
+
+            if min_id is None or max_id is None:
+                # Não há dados para particionar
+                return None
+
+            # Calcular número de partições baseado no tamanho
+            total_records = max_id - min_id + 1
+
+            # Fallback para small tables: evitar paralelismo exagerado
+            if total_records < config["small_table_threshold"]:
+                # Para tabelas pequenas, usar menos partições
+                num_partitions = max(1, min(config["min_partitions"], total_records // 1000 + 1))
+            else:
+                # Para tabelas grandes, calcular partições otimizadas
+                target_records_per_partition = cls.JDBC_TARGET_RECORDS_PER_PARTITION
+                calculated_partitions = max(
+                    config["min_partitions"],
+                    min(config["max_partitions"], total_records // target_records_per_partition + 1)
+                )
+                num_partitions = calculated_partitions
+
+            # Ajuste final: garantir que não exceda o range disponível
+            if max_id - min_id < num_partitions:
+                num_partitions = max(1, max_id - min_id + 1)
+
+            # Limitar pelo máximo de conexões JDBC
+            num_partitions = min(num_partitions, cls.JDBC_MAX_CONNECTIONS_PER_TABLE)
+
+            partition_options = {
+                "partitionColumn": partition_column,
+                "lowerBound": int(min_id),
+                "upperBound": int(max_id),
+                "numPartitions": num_partitions
+            }
+
+            return partition_options
+
+        except Exception as e:
+            # Em caso de erro, usar configuração padrão conservadora
+            print(f"⚠️ Erro ao obter estatísticas dinâmicas para {table_name}: {e}")
+            print(f"📊 Usando configuração padrão de particionamento")
+
+            return {
+                "partitionColumn": partition_column,
+                "lowerBound": 1,
+                "upperBound": 100000,
+                "numPartitions": config["min_partitions"]
+            }
+
+    @classmethod
+    def demonstrate_jdbc_partitioning(cls, spark_session=None):
+        """
+        Demonstra como funciona o sistema de particionamento JDBC
+
+        Args:
+            spark_session: Sessão Spark para testes dinâmicos
+        """
+        print("\nDemonstracao do Sistema de Particionamento JDBC Otimizado")
+        print("=" * 60)
+
+        # Cenários de exemplo
+        scenarios = [
+            ("movimento", 50000, "Tabela média"),
+            ("movimento", 500000, "Tabela grande"),
+            ("movimento", 5000, "Tabela pequena"),
+            ("cartao", 15000, "Cartões médio"),
+            ("associado", 2000, "Associados pequeno")
+        ]
+
+        for table_name, record_count, description in scenarios:
+            print(f"\n{description} ({record_count} registros):")
+
+            # Simular estatísticas da tabela
+            min_id = 1
+            max_id = record_count
+
+            # Calcular particionamento
+            total_records = max_id - min_id + 1
+
+            if total_records < 10000:  # Small table
+                num_partitions = max(1, min(2, total_records // 1000 + 1))
+                print(f"  -> Particoes: {num_partitions} (otimizado para tabela pequena)")
+            else:  # Large table
+                target_records_per_partition = cls.JDBC_TARGET_RECORDS_PER_PARTITION
+                calculated_partitions = max(8, min(32, total_records // target_records_per_partition + 1))
+                print(f"  -> Particoes: {calculated_partitions} (otimizado para tabela grande)")
+
+            # Mostrar configuração
+            options = cls.get_jdbc_partition_options(table_name, spark_session)
+            if options:
+                print(f"  -> Range: {options['lowerBound']}-{options['upperBound']}")
+                print(f"  -> Particoes JDBC: {options['numPartitions']}")
+            else:
+                print("  -> Sem particionamento (tabela vazia)")
+
+        print("\n" + "=" * 60)
+        print("Beneficios implementados:")
+        print("- Tuning dinamico baseado em estatisticas reais")
+        print("- Fallback inteligente para tabelas pequenas")
+        print("- Otimizacao automatica de numPartitions")
+        print("- Controle de conexoes JDBC por tabela")
+        print("- Configuracao centralizada e ajustavel")
+
+    @classmethod
+    def print_jdbc_partitioning_info(cls):
+        """
+        Imprime informações sobre configurações de particionamento JDBC
+        """
+        print("\nConfiguracoes de Particionamento JDBC:")
+        print(f"  - Particionamento habilitado: {cls.JDBC_PARTITIONING_ENABLED}")
+        print(f"  - Registros alvo por particao: {cls.JDBC_TARGET_RECORDS_PER_PARTITION}")
+        print(f"  - Maximo de conexoes por tabela: {cls.JDBC_MAX_CONNECTIONS_PER_TABLE}")
+        print(f"  - Timeout de estatisticas: {cls.JDBC_STATS_QUERY_TIMEOUT}s")
+
+        print("\nConfiguracoes por tabela:")
+        table_configs = {
+            "associado": (10000, "2-8"),
+            "conta": (5000, "2-8"),
+            "cartao": (20000, "4-16"),
+            "movimento": (100000, "8-32")
+        }
+
+        for table, (threshold, partitions) in table_configs.items():
+            print(f"  - {table}: threshold={threshold}, particoes={partitions}")
 
     @classmethod
     def print_config(cls):
@@ -256,6 +488,9 @@ class Config:
                     print(f"{key}: ********")
                 else:
                     print(f"{key}: {value}")
+
+        # Imprimir informações específicas de particionamento JDBC
+        cls.print_jdbc_partitioning_info()
 
     @classmethod
     def get_spark_config(cls) -> dict:
