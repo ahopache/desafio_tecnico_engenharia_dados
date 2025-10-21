@@ -85,18 +85,35 @@ output/
 # Configurações Sensíveis
 # ----------------------------------------------------------------------------
 .env
+.env.*
 *.pem
 *.key
+*.crt
+*.p12
+*.pfx
 credentials.json
+secrets/
+**/secrets/
+config/local.json
+config/production.json
+config/staging.json
 
-# ----------------------------------------------------------------------------
-# Docker
-# ----------------------------------------------------------------------------
-.dockerignore
+# Arquivos de segredos específicos
+**/mysql_*_password
+**/db_password
+**/api_key
+**/secret_key
 
-# ----------------------------------------------------------------------------
-# Temporários
-# ----------------------------------------------------------------------------
-tmp/
-temp/
-*.tmp
+# Chaves privadas e certificados
+private_key*
+*_private.key
+id_rsa
+*.pem
+
+# Arquivos de configuração com senhas
+*.conf
+*.ini
+*.yaml
+*.yml
+!requirements.txt
+!desafio.txt

@@ -102,13 +102,13 @@ docker-compose logs -f spark
 
 ```bash
 # Acessar shell do MySQL
-docker-compose exec mysql mysql -u root -proot_password sicooperative_db
+docker-compose exec mysql mysql -u root -p sicooperative_db
 
 # Acessar shell do Spark
 docker-compose exec spark bash
 
-# Executar query SQL
-docker-compose exec mysql mysql -u root -proot_password sicooperative_db -e "SELECT COUNT(*) FROM movimento;"
+# Executar query SQL (senha será solicitada)
+docker-compose exec mysql mysql -u root -p sicooperative_db -e "SELECT COUNT(*) FROM movimento;"
 ```
 
 ### Rebuild
@@ -147,18 +147,72 @@ docker-compose up -d --build
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🔐 Credenciais Padrão
+## 🔐 Segurança e Credenciais
+
+### Configuração Segura
+
+**IMPORTANTE**: Este ambiente usa Docker Secrets para proteger credenciais sensíveis.
+
+#### 1. Criar Arquivos de Secrets
+
+Antes de executar o ambiente, crie os arquivos de secrets:
+
+```bash
+# Navegar para o diretório docker
+cd docker
+
+# Criar diretório de secrets
+mkdir -p secrets
+
+# Gerar senhas seguras (use openssl ou pwgen)
+echo "sua_senha_mysql_segura_aqui" > secrets/mysql_root_password
+echo "sua_senha_usuario_segura_aqui" > secrets/mysql_password
+
+# Definir permissões restritivas
+chmod 600 secrets/mysql_root_password secrets/mysql_password
+```
+
+#### 2. Configurar Variáveis de Ambiente
+
+Crie um arquivo `.env` baseado no `.env.example`:
+
+```bash
+# Copiar template
+cp ../.env.example ../.env
+
+# Editar .env com suas configurações
+nano ../.env
+```
+
+#### 3. Configurações Padrão (Ambiente de Desenvolvimento)
 
 **MySQL:**
 - Host: `localhost` (ou `mysql` dentro da rede Docker)
 - Port: `3306`
 - Database: `sicooperative_db`
-- Root User: `root`
-- Root Password: `root_password`
-- App User: `etl_user`
-- App Password: `etl_password`
+- Root User: Definido em `secrets/mysql_root_password`
+- App User: Definido em `secrets/mysql_password`
 
-⚠️ **IMPORTANTE**: Estas são credenciais de desenvolvimento. **NUNCA** use em produção!
+⚠️ **IMPORTANTE**: Estas são configurações de desenvolvimento. **NUNCA** use em produção!
+
+### Arquivos de Secrets
+
+O sistema utiliza Docker Secrets para proteger credenciais:
+
+- `secrets/mysql_root_password`: Senha do usuário root do MySQL
+- `secrets/mysql_password`: Senha do usuário da aplicação
+
+**Para desenvolvimento local:**
+```bash
+# Criar secrets para desenvolvimento
+echo "root_password" > secrets/mysql_root_password
+echo "etl_password" > secrets/mysql_password
+```
+
+**Para produção:**
+- Use sistemas de gerenciamento de segredos (Vault, AWS Secrets Manager, etc.)
+- Gere senhas fortes e únicas
+- Monitore acessos e alterações
 
 ## 📊 Volumes
 
@@ -201,9 +255,9 @@ docker-compose up -d
 # Verificar se scripts estão montados
 docker-compose exec mysql ls -la /docker-entrypoint-initdb.d/
 
-# Forçar execução manual
-docker-compose exec mysql mysql -u root -proot_password sicooperative_db < ../sql/01_create_schema.sql
-docker-compose exec mysql mysql -u root -proot_password sicooperative_db < ../sql/02_insert_data.sql
+# Forçar execução manual (senha será solicitada)
+docker-compose exec mysql mysql -u root -p sicooperative_db < ../sql/01_create_schema.sql
+docker-compose exec mysql mysql -u root -p sicooperative_db < ../sql/02_insert_data.sql
 ```
 
 ### Problema: Spark não encontra MySQL
@@ -219,7 +273,7 @@ docker-compose ps
 docker-compose exec spark python -c "
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.getOrCreate()
-df = spark.read.format('jdbc').option('url', 'jdbc:mysql://mysql:3306/sicooperative_db').option('user', 'root').option('password', 'root_password').option('driver', 'com.mysql.cj.jdbc.Driver').option('dbtable', '(SELECT 1) AS test').load()
+df = spark.read.format('jdbc').option('url', 'jdbc:mysql://mysql:3306/sicooperative_db').option('user', 'root').option('password', open('/run/secrets/mysql_root_password').read().strip()).option('driver', 'com.mysql.cj.jdbc.Driver').option('dbtable', '(SELECT 1) AS test').load()
 print(df.count())
 "
 ```
