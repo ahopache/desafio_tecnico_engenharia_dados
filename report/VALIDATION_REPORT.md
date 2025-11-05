@@ -1,7 +1,7 @@
 # Relatório de Validação do Projeto
 ## SiCooperative Data Lake POC
 
-**Data:** 18 de October de 2025
+**Data:** 05 de November de 2025
 **Status:** ✅ PROJETO COMPLETO E VALIDADO
 
 ---
@@ -13,7 +13,7 @@
 | `sql/` | ✅ | Scripts SQL (DDL + DML) |
 | `src/` | ✅ | Código fonte Python |
 | `report/` | ✅ | Relatório de validação |
-| `tests/` | ✅ | Testes unitários (45 testes) |
+| `tests/` | ✅ | Testes unitários (56 testes) |
 | `docker/` | ✅ | Configurações Docker |
 | `output/` | ✅ | Diretório para CSV gerado |
 ---
@@ -22,11 +22,11 @@
 
 | Arquivo            | Status | Tamanho  | Descrição                |
 |--------------------|--------|----------|--------------------------|
-| `ReadME.MD` | ✅ | 30.6 kB | Documentação principal |
-| `requirements.txt` | ✅ | 555 Bytes | Dependências Python |
-| `pytest.ini` | ✅ | 894 Bytes | Configuração pytest |
-| `.gitignore` | ✅ | 2.5 kB | Git ignore |
-| `.env.example` | ✅ | 4.0 kB | Template de configuração |
+| `ReadME.MD` | ✅ | 38.9 kB | Documentação principal |
+| `requirements.txt` | ✅ | 580 Bytes | Dependências Python |
+| `pytest.ini` | ✅ | 1.0 kB | Configuração pytest |
+| `.gitignore` | ✅ | 2.6 kB | Git ignore |
+| `.env.example` | ✅ | 5.4 kB | Template de configuração |
 ---
 
 ## ✅ Scripts SQL
@@ -49,10 +49,10 @@
 | Arquivo | Status | Linhas | Descrição |
 |---------|--------|--------|-----------|
 | `src/__init__.py` | ✅ | 10 | Inicialização do pacote |
-| `src/config.py` | ✅ | 260 | Configurações centralizadas |
-| `src/utils.py` | ✅ | 298 | Funções auxiliares |
-| `src/etl_pipeline.py` | ✅ | 629 | Pipeline ETL principal |
-| `src/data_quality.py` | ✅ | 329 | Implementa verificacoes de qualidade de dados em tempo de execucao para o pipeline ETL |
+| `src/config.py` | ✅ | 514 | Configurações centralizadas |
+| `src/utils.py` | ✅ | 458 | Funções auxiliares |
+| `src/etl_pipeline.py` | ✅ | 1405 | Pipeline ETL principal |
+| `src/data_quality.py` | ✅ | 777 | Implementa verificacoes de qualidade de dados em tempo de execucao para o pipeline ETL |
 | `src/observability.py` | ✅ | 369 | Implementa sistema de métricas e monitoramento para o pipeline ETL |
 | `sql/generate_fake_data.py` | ✅ | 461 | Geração de dados fictícios para desafio |
 | `report/create_validation_reportmd.py` | ✅ | 505 | Gera esse report |
@@ -75,7 +75,7 @@
 | `tests/test_utils.py` | ✅ | 14 | Testes de utilitários |
 | `tests/test_etl_pipeline.py` | ✅ | 15 | Testes do pipeline |
 
-**Total: 45 testes**
+**Total: 56 testes**
 
 **Cobertura:**
 - ✅ Configurações (URLs, propriedades, validações)
@@ -122,7 +122,7 @@
 
 ### Dependências
 ```python
-✅ Python 3.10.11 instalado
+✅ Python 3.11.0 instalado
 ✅ pytest 8.3.5 instalado
 ⚠️ PySpark - Requer instalação: pip install -r requirements.txt
 ```
@@ -133,7 +133,7 @@
 | Métrica | Valor |
 |---------|-------|
 | **Arquivos Python** | 7 |
-| **Linhas de código** | ~2356 |
+| **Linhas de código** | ~3994 |
 | **Testes unitários** | 42 |
 | **Cobertura estimada** | 90% |
 | **Scripts SQL** | 2 |
@@ -152,7 +152,7 @@
 | ✅ Escrever CSV parametrizado | ✅ | Argumento --output via CLI, com tipos preservados (Decimal e DateTime ISO 8601) e valores formatados conforme padrão internacional  + Parquet particionado por data (extensão de performance) |
 | ✅ Repositório privado GitHub | ⏳ | Pronto para commit |
 | **BÔNUS** ✅ Docker automatizado | ✅ | Docker Compose completo |
-| **BÔNUS** ✅ Testes unitários | ✅ | 45 testes com pytest + chispa |
+| **BÔNUS** ✅ Testes unitários | ✅ | 56 testes com pytest + chispa |
 ---
 
 ## 🚀 Próximos Passos
@@ -216,7 +216,7 @@ Todos os requisitos do desafio foram implementados:
 - ✅ Pipeline ETL com PySpark
 - ✅ CSV parametrizado
 - ✅ Docker automatizado (BÔNUS)
-- ✅ 4 testes unitários (BÔNUS)
+- ✅ 6 testes unitários (BÔNUS)
 - ✅ Documentação completa
 
 ## Diferenciais Implementados

@@ -1,4 +1,4 @@
-﻿name: SiCooperative ETL Pipeline CI/CD
+name: SiCooperative ETL Pipeline CI/CD
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
     branches: [ main, develop ]
   workflow_dispatch:
 
-env:
-  PYTHON_VERSION: '3.11'
-  MYSQL_VERSION: '8.0'
+# env:
+#   PYTHON_VERSION: '3.11'
+#   MYSQL_VERSION: '8.0'
 
 jobs:
   quality-tests:
@@ -47,7 +47,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:${{ env.MYSQL_VERSION }}
+        image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root_password
           MYSQL_DATABASE: sicooperative_db

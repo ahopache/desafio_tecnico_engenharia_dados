@@ -256,10 +256,10 @@ def check_requirements() -> Dict:
             sum_tests += int(get_test_count_in_file(test_file))
 
     return {
-        'database': (PROJECT_ROOT / 'docker-compose.yml').exists() and 'mysql' in (PROJECT_ROOT / 'docker-compose.yml').read_text(),
+        'database': (PROJECT_ROOT / 'docker-compose.yml').exists() and 'mysql' in (PROJECT_ROOT / 'docker-compose.yml').read_text(encoding='utf-8'),
         'sample_data': (PROJECT_ROOT / 'data').exists() and any((PROJECT_ROOT / 'data').iterdir()),
         'etl_pipeline': (PROJECT_ROOT / 'src' / 'etl_pipeline.py').exists(),
-        'csv_output': (PROJECT_ROOT / 'src' / 'config.py').exists() and 'OUTPUT_FORMAT' in (PROJECT_ROOT / 'src' / 'config.py').read_text(),
+        'csv_output': (PROJECT_ROOT / 'src' / 'config.py').exists() and 'OUTPUT_FORMAT' in (PROJECT_ROOT / 'src' / 'config.py').read_text(encoding='utf-8'),
         'docker': (PROJECT_ROOT / 'Dockerfile').exists(),
         'tests': test_count > 0,
         'test_count': test_count,
