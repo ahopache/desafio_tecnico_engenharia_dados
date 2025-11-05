@@ -886,6 +886,9 @@ class SiCooperativeETL:
             
             # Registrar métricas de sucesso no carregamento
             if observability_manager.is_enabled():
+                # Métricas de throughput
+                load_start_time = time.time()
+                
                 # Métricas de sucesso
                 observability_manager.get_collector().record_gauge(
                     "etl_records_loaded", total_registros, {"stage": "load", "format": "csv"}
@@ -900,9 +903,10 @@ class SiCooperativeETL:
                     "etl_output_file_size_mb", csv_size_mb, {"stage": "load", "format": "csv"}
                 )
                 
-                # Métricas de throughput
-                if load_result and load_result.duration_seconds > 0:
-                    throughput = total_registros / load_result.duration_seconds if total_registros > 0 else 0
+                # Código de carregamento já foi executado, vamos calcular a duração
+                load_duration = time.time() - load_start_time
+                if load_duration > 0:
+                    throughput = total_registros / load_duration if total_registros > 0 else 0
                     observability_manager.get_collector().record_gauge(
                         "etl_load_throughput_records_per_second", throughput, {"stage": "load"}
                     )

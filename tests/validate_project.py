@@ -48,7 +48,7 @@ def main():
     print("=" * 70)
     print()
     
-    base_dir = Path(__file__).parent
+    base_dir = Path(__file__).parent.parent
     checks_passed = 0
     checks_total = 0
     
