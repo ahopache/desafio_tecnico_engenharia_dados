@@ -32,10 +32,11 @@ def setup_hadoop_windows():
 
     try:
         # Criar diretórios
+        os.makedirs(hadoop_home, exist_ok=True)
         os.makedirs(bin_dir, exist_ok=True)
 
-        # Baixar winutils.exe do Hadoop 3.2.1
-        winutils_url = "https://github.com/steveloughran/winutils/raw/master/hadoop-3.2.1/bin/winutils.exe"
+        # Baixar winutils.exe do Hadoop 3.0.0
+        winutils_url = "https://github.com/steveloughran/winutils/raw/refs/heads/master/hadoop-3.0.0/bin/winutils.exe"
         print(f"⬇️ Baixando winutils.exe de {winutils_url}...")
 
         urllib.request.urlretrieve(winutils_url, winutils_path)

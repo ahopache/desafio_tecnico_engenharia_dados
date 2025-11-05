@@ -404,7 +404,7 @@ desafio_tecnico_engenharia_dados/
 
 - Python >= 3.10
 - MySQL >= 8.0 (já instalado)
-- Java JDK >= 11 (requerido pelo Spark)
+- Java JDK >= 11 (requerido pelo Spark) - Para desenvolvimento foi utilizado o 11.0.28+6 baixado em: https://www.openlogic.com/openjdk-downloads
 - Apache Spark >= 3.5
 
 ---
