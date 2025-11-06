@@ -47,9 +47,10 @@ def setup_hadoop_windows():
 
             # Configurar variável de ambiente permanentemente (se possível)
             try:
-                # Tentar usar setx para configuração permanente
-                os.system(f'setx HADOOP_HOME "{hadoop_home}" /M >nul 2>&1')
-                print(f"✅ HADOOP_HOME configurado permanentemente: {hadoop_home}")
+                # os.system(f'setx HADOOP_HOME "{hadoop_home}" /M >nul 2>&1')
+                os.environ['HADOOP_HOME'] = 'C:\\hadoop'
+                os.environ['PATH'] = f"{os.environ['HADOOP_HOME']}\\bin;{os.environ['PATH']}"
+                print(f"✅ HADOOP_HOME configurado: {hadoop_home}")
             except:
                 print(f"⚠️ Configure HADOOP_HOME manualmente: {hadoop_home}")
 

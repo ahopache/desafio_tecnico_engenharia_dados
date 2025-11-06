@@ -501,11 +501,17 @@ class Config:
             dict: Configurações do Spark
         """
         return {
+            # Nome da aplicação Spark
             "spark.app.name": cls.SPARK_APP_NAME,
+            # Endereço do master Spark
             "spark.master": cls.SPARK_MASTER,
+            # Memória do driver Spark
             "spark.driver.memory": cls.SPARK_DRIVER_MEMORY,
+            # Memória do executor Spark
             "spark.executor.memory": cls.SPARK_EXECUTOR_MEMORY,
+            # Ativação do Adaptive Query Execution
             "spark.sql.adaptive.enabled": cls.SPARK_SQL_ADAPTIVE_ENABLED,
+            # Ativação do coalescePartitions
             "spark.sql.adaptive.coalescePartitions.enabled": cls.SPARK_SQL_ADAPTIVE_COALESCE_PARTITIONS
         }
 

@@ -70,6 +70,12 @@ class SiCooperativeETL:
             "registros_final": 0
         }
     
+    def _ensure_output_dir_exists(self):
+        """Garante que o diretório de saída existe."""
+        output_dir = os.path.dirname(Config.get_output_path())
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+
     def log_structured(self, level: str, message: str, **kwargs) -> None:
         """
         Gera log estruturado em formato JSON
@@ -838,6 +844,9 @@ class SiCooperativeETL:
         output_paths = {}
         total_registros = df.count()
         
+        # Garante que o diretório de saída existe
+        self._ensure_output_dir_exists()
+
         try:
             # Preparar dados para escrita
             df_ordered = df.orderBy("data_movimento", "id_movimento")
