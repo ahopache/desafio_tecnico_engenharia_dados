@@ -664,7 +664,7 @@ class SiCooperativeETL:
             # Aplicar formatação de valores decimais
             df_joined = df_joined.withColumn(
                 "vlr_transacao_decimal",
-                F.col("vlr_transacao").cast(DecimalType(20, 2))
+                F.col("vlr_transacao").cast("double")
             )
             
             df_transformed = df_joined.select(
@@ -852,7 +852,7 @@ class SiCooperativeETL:
             df_ordered = df.orderBy("data_movimento", "id_movimento")
             df_with_precision = df_ordered.withColumn(
                 "vlr_transacao_movimento_final",
-                F.col("vlr_transacao_movimento").cast(DecimalType(10, 2))
+                F.col("vlr_transacao_movimento").cast("double")
             )
             
             # Validar que o cast foi aplicado corretamente
@@ -973,10 +973,10 @@ class SiCooperativeETL:
             field = schema[0]  # Primeiro (e único) campo
             actual_type = field.dataType
             
-            # Verificar se é DecimalType
-            if not isinstance(actual_type, DecimalType):
+            # Verificar se é DoubleType
+            if not isinstance(actual_type, DoubleType):
                 raise ETLException(
-                    f"Tipo incorreto para vlr_transacao_movimento: esperado DecimalType, "
+                    f"Tipo incorreto para vlr_transacao_movimento: esperado DoubleType, "
                     f"obtido {type(actual_type).__name__}"
                 )
             
@@ -1024,10 +1024,10 @@ class SiCooperativeETL:
             field = schema[0]
             actual_type = field.dataType
             
-            # Verificar se é DecimalType
-            if not isinstance(actual_type, DecimalType):
+            # Verificar se é DoubleType
+            if not isinstance(actual_type, DoubleType):
                 raise ETLException(
-                    f"Tipo incorreto após cast final: esperado DecimalType, "
+                    f"Tipo incorreto após cast final: esperado DoubleType, "
                     f"obtido {type(actual_type).__name__}"
                 )
             

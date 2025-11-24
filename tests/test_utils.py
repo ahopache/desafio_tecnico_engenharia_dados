@@ -5,6 +5,7 @@ Valida funções auxiliares e utilitários
 
 import pytest
 import logging
+from decimal import Decimal
 from pyspark.sql import DataFrame
 from utils import (
     setup_logger,
@@ -85,7 +86,7 @@ class TestFormatDuration:
     
     def test_format_duration_minutes(self):
         """Testa formatação de duração em minutos"""
-        result = format_duration(125.5)  # 2 minutos e 5.5 segundos
+        result = format_duration(Decimal("125.5"))  # 2 minutos e 5.5 segundos
         assert "2m" in result
         assert "5.50s" in result
     

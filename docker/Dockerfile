@@ -26,22 +26,32 @@ ENV PYTHONUNBUFFERED=1 \
     PATH=$PATH:/usr/lib/jvm/java-17-openjdk-amd64/bin
 
 # ============================================================================
+# DIRETÓRIOS DA APLICAÇÃO
+# ============================================================================
+USER root
+RUN mkdir -p /app/src /app/output /app/logs /app/config /etc/apt /etc/docker
+
+# ============================================================================
 # INSTALAÇÃO OTIMIZADA (REDUZ CAMADAS)
 # ============================================================================
-
 RUN apt-get update && \
-    # Instalar apenas dependências essenciais (sem --no-install-recommends para compatibilidade)
-    apt-get install -y \
-        openjdk-17-jre-headless \
-        curl \
-        wget \
-        procps \
-        net-tools && \
-    # Limpeza completa para reduzir tamanho da imagem
+    apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    procps \
+    net-tools \
+    openjdk-17-jre-headless && \
+    \
+    # Limpeza completa (MUITO IMPORTANTE para slim)
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    # Verificar instalação
-    python --version && java -version
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Verificar instalação
+RUN python --version && java -version
+
+# Verificar instalações
+RUN java -version && \
+    python --version
 
 # ============================================================================
 # DIRETÓRIO DE TRABALHO
@@ -54,7 +64,7 @@ WORKDIR /app
 # ============================================================================
 
 # Copiar apenas requirements primeiro (melhora cache de layers)
-COPY ../requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 
 # Instalar dependências em uma única camada
 RUN pip install --upgrade pip --no-cache-dir && \
@@ -69,11 +79,7 @@ RUN pip install --upgrade pip --no-cache-dir && \
 RUN python -c "import pyspark; print('✓ PySpark instalado:', pyspark.__version__)" && \
     echo "✓ Ambiente configurado com sucesso"
 
-# ============================================================================
-# DIRETÓRIOS DA APLICAÇÃO
-# ============================================================================
 
-RUN mkdir -p /app/src /app/output /app/logs /app/config
 
 # ============================================================================
 # HEALTHCHECK OTIMIZADO
